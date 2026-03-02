@@ -20,7 +20,13 @@ import {
   PROFILE_CACHE_TTL_SECONDS,
   SESSION_TTL_SECONDS,
 } from "@/lib/constants";
-import { APIError } from "@/utils/apiError";
+import {
+  APIError,
+  PROFILE_ALREADY_ANSWERED,
+  SESSION_ALREADY_COMPLETE,
+  SESSION_EXPIRED,
+  SESSION_NOT_FOUND,
+} from "@/utils/apiError";
 import {
   computeSessionAccuracy,
   computeXP,
@@ -287,6 +293,8 @@ export class SessionService {
     profiles: StoredProfile[],
     attempts: Array<Pick<Attempt, "totalScore">>
   ): SessionState {
+    const currentProfile = profiles[session.currentIndex];
+
     return {
       sessionId: session.id,
       guestToken: session.guestToken,
@@ -295,7 +303,7 @@ export class SessionService {
       totalProfiles: profiles.length,
       totalScore: session.totalScore,
       maxScore: session.maxScore,
-      currentProfile: profiles[session.currentIndex] ? toPublicProfile(profiles[session.currentIndex]) : null,
+      currentProfile: currentProfile ? toPublicProfile(currentProfile) : null,
       completedScores: attempts.map((attempt) => attempt.totalScore),
       expiresAt: session.expiresAt.toISOString(),
     };
@@ -334,7 +342,7 @@ export class SessionService {
     const profiles = await this.loadProfiles();
 
     if (profiles.length === 0) {
-      throw new APIError(500, "NO_ACTIVE_PROFILES", "No active profiles are available");
+      throw new APIError("NO_ACTIVE_PROFILES", "No active profiles are available", 500);
     }
 
     const finalGuestToken = userId ? null : guestToken ?? randomUUID();
@@ -420,7 +428,7 @@ export class SessionService {
     });
 
     if (!session) {
-      throw new APIError(404, "SESSION_NOT_FOUND", "Session not found");
+      throw new APIError(SESSION_NOT_FOUND.code, "Session not found", SESSION_NOT_FOUND.statusCode);
     }
 
     if (session.expiresAt.getTime() < Date.now()) {
@@ -428,20 +436,32 @@ export class SessionService {
         where: { id: sessionId },
         data: { status: "EXPIRED" },
       });
-      throw new APIError(410, "SESSION_EXPIRED", "Session has expired");
+      throw new APIError(SESSION_EXPIRED.code, "Session has expired", SESSION_EXPIRED.statusCode);
     }
 
     if (session.status !== "ACTIVE") {
-      throw new APIError(409, "SESSION_NOT_ACTIVE", "Session is not active");
+      throw new APIError(
+        SESSION_ALREADY_COMPLETE.code,
+        "Session is not active",
+        SESSION_ALREADY_COMPLETE.statusCode
+      );
     }
 
     const expectedProfileId = session.profileOrder[session.currentIndex];
     if (expectedProfileId !== profileId) {
-      throw new APIError(409, "PROFILE_MISMATCH", "Submitted profile does not match current session index");
+      throw new APIError(
+        "PROFILE_MISMATCH",
+        "Submitted profile does not match current session index",
+        409
+      );
     }
 
     if (session.attempts.length > 0) {
-      throw new APIError(409, "DUPLICATE_ATTEMPT", "Attempt already submitted for this profile");
+      throw new APIError(
+        PROFILE_ALREADY_ANSWERED.code,
+        "Attempt already submitted for this profile",
+        PROFILE_ALREADY_ANSWERED.statusCode
+      );
     }
 
     const profile = await prisma.profile.findUnique({
@@ -464,7 +484,7 @@ export class SessionService {
     });
 
     if (!profile) {
-      throw new APIError(404, "PROFILE_NOT_FOUND", "Profile not found");
+      throw new APIError("PROFILE_NOT_FOUND", "Profile not found", 404);
     }
 
     const correct: AttemptSelections = {
@@ -633,7 +653,7 @@ export class SessionService {
     });
 
     if (!session) {
-      throw new APIError(404, "SESSION_NOT_FOUND", "Session not found");
+      throw new APIError(SESSION_NOT_FOUND.code, "Session not found", SESSION_NOT_FOUND.statusCode);
     }
 
     if (session.expiresAt.getTime() < Date.now()) {
@@ -641,7 +661,7 @@ export class SessionService {
         where: { id: sessionId },
         data: { status: "EXPIRED" },
       });
-      throw new APIError(410, "SESSION_EXPIRED", "Session has expired");
+      throw new APIError(SESSION_EXPIRED.code, "Session has expired", SESSION_EXPIRED.statusCode);
     }
 
     if (session.status !== "COMPLETED") {

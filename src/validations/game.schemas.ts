@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { CV_VALUES, DR_VALUES, SE_VALUES, SR_VALUES } from "@/lib/constants";
 
-export const CreateSessionSchema = z.object({
-  guestToken: z.string().min(1).max(128).optional(),
+export const NewSessionSchema = z.object({
+  userId: z.string().min(1).optional(),
 });
 
 export const SubmitAnswerSchema = z.object({
@@ -13,22 +13,18 @@ export const SubmitAnswerSchema = z.object({
     SR: z.enum(SR_VALUES),
     CV: z.enum(CV_VALUES),
   }),
-  metadata: z
-    .object({
-      clueUsed: z.boolean().optional(),
-      timeTakenMs: z.number().int().nonnegative().optional(),
-    })
-    .optional(),
+  clueUsed: z.boolean(),
+  timeTakenMs: z.number().int().positive(),
 });
 
-export const CompleteSessionSchema = z.object({}).passthrough();
+export const CompleteSessionSchema = z.object({});
 
 export const CredentialsSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8).max(128),
 });
 
-export type CreateSessionInput = z.infer<typeof CreateSessionSchema>;
+export type NewSessionInput = z.infer<typeof NewSessionSchema>;
 export type SubmitAnswerInput = z.infer<typeof SubmitAnswerSchema>;
 export type CompleteSessionInput = z.infer<typeof CompleteSessionSchema>;
 export type CredentialsInput = z.infer<typeof CredentialsSchema>;

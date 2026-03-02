@@ -13,6 +13,7 @@ export function ProgressDots({ total, current, completedScores }: ProgressDotsPr
         const isCompleted = i < completedScores.length;
         const isCurrent = i === current;
         const score = completedScores[i];
+        const scoreValue = typeof score === "number" ? score : null;
 
         return (
           <motion.div
@@ -21,9 +22,9 @@ export function ProgressDots({ total, current, completedScores }: ProgressDotsPr
               isCurrent
                 ? "bg-primary glow-primary"
                 : isCompleted
-                ? score === 4
+                ? scoreValue === 4
                   ? "bg-score-perfect"
-                  : score >= 2
+                  : scoreValue !== null && scoreValue >= 2
                   ? "bg-score-good"
                   : "bg-score-poor"
                 : "bg-muted"
@@ -31,7 +32,9 @@ export function ProgressDots({ total, current, completedScores }: ProgressDotsPr
             initial={false}
             animate={isCurrent ? { scale: [1, 1.3, 1] } : { scale: 1 }}
             transition={isCurrent ? { repeat: Infinity, duration: 2 } : {}}
-            aria-label={`Profile ${i + 1}${isCurrent ? " (current)" : isCompleted ? ` (score: ${score}/4)` : ""}`}
+            aria-label={`Profile ${i + 1}${
+              isCurrent ? " (current)" : isCompleted ? ` (score: ${scoreValue ?? "n/a"}/4)` : ""
+            }`}
           />
         );
       })}

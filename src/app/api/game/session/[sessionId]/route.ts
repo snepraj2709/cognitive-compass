@@ -1,7 +1,12 @@
-import { NextResponse } from "next/server";
-import { RATE_LIMIT } from "@/lib/constants";
+import { NextRequest, NextResponse } from "next/server";
+import { RATE_LIMIT_REQUESTS_PER_MINUTE } from "@/lib/constants";
 import { SessionService } from "@/services/SessionService";
-import { APIError, withErrorHandler } from "@/utils/apiError";
+import {
+  APIError,
+  SESSION_EXPIRED,
+  SESSION_NOT_FOUND,
+  withErrorHandler,
+} from "@/utils/apiError";
 import { enforceRateLimit, getClientIp } from "@/utils/request";
 
 function getSessionId(params: Record<string, string | string[] | undefined> | undefined) {
@@ -9,24 +14,30 @@ function getSessionId(params: Record<string, string | string[] | undefined> | un
   if (typeof raw === "string" && raw.length > 0) {
     return raw;
   }
-  throw new APIError(400, "INVALID_SESSION_ID", "Invalid session id");
+  throw new APIError("INVALID_SESSION_ID", "Invalid session id", 400);
 }
 
-export const GET = withErrorHandler(async (request, context) => {
-  const sessionId = getSessionId(context.params);
-  const rateIdentifier = `${sessionId}:${getClientIp(request)}`;
+type SessionRouteContext = {
+  params: Record<string, string | string[] | undefined>;
+};
 
-  await enforceRateLimit(rateIdentifier, RATE_LIMIT.GET_SESSION_PER_MINUTE);
+export async function GET(request: NextRequest, context: SessionRouteContext): Promise<NextResponse> {
+  return withErrorHandler(request, async () => {
+    const sessionId = getSessionId(context.params);
+    const rateIdentifier = `${sessionId}:${getClientIp(request)}`;
 
-  const session = await SessionService.getSession(sessionId);
+    await enforceRateLimit(rateIdentifier, RATE_LIMIT_REQUESTS_PER_MINUTE);
 
-  if (!session) {
-    throw new APIError(404, "SESSION_NOT_FOUND", "Session not found");
-  }
+    const session = await SessionService.getSession(sessionId);
 
-  if (session.status === "EXPIRED") {
-    throw new APIError(410, "SESSION_EXPIRED", "Session has expired");
-  }
+    if (!session) {
+      throw new APIError(SESSION_NOT_FOUND.code, "Session not found", SESSION_NOT_FOUND.statusCode);
+    }
 
-  return NextResponse.json(session);
-});
+    if (session.status === "EXPIRED") {
+      throw new APIError(SESSION_EXPIRED.code, "Session has expired", SESSION_EXPIRED.statusCode);
+    }
+
+    return NextResponse.json(session);
+  });
+}

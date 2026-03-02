@@ -90,7 +90,8 @@ export function useGameStream() {
     abortRef.current = controller;
 
     try {
-      const timeTakenMs = startTimestamp ? Date.now() - startTimestamp : undefined;
+      const elapsedMs = startTimestamp ? Date.now() - startTimestamp : 1;
+      const timeTakenMs = Math.max(1, elapsedMs);
 
       const response = await fetch(`/api/game/session/${sessionId}/submit`, {
         method: "POST",
@@ -98,10 +99,8 @@ export function useGameStream() {
         body: JSON.stringify({
           profileId: currentProfile.id,
           selections: selectionPayload,
-          metadata: {
-            clueUsed: clueRevealed,
-            timeTakenMs,
-          },
+          clueUsed: clueRevealed,
+          timeTakenMs,
         }),
         signal: controller.signal,
       });

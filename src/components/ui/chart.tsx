@@ -122,29 +122,33 @@ const ChartTooltipContent = React.forwardRef<
   ) => {
     const { config } = useChart();
 
-    const tooltipLabel = React.useMemo(() => {
-      if (hideLabel || !payload?.length) {
-        return null;
-      }
+      const tooltipLabel = React.useMemo(() => {
+        if (hideLabel || !payload?.length) {
+          return null;
+        }
 
-      const [item] = payload;
-      const key = `${labelKey || item.dataKey || item.name || "value"}`;
-      const itemConfig = getPayloadConfigFromPayload(config, item, key);
-      const value =
-        !labelKey && typeof label === "string"
-          ? config[label as keyof typeof config]?.label || label
-          : itemConfig?.label;
+        const item = payload[0];
+        if (!item) {
+          return null;
+        }
 
-      if (labelFormatter) {
-        return <div className={cn("font-medium", labelClassName)}>{labelFormatter(value, payload)}</div>;
-      }
+        const key = `${labelKey || item.dataKey || item.name || "value"}`;
+        const itemConfig = getPayloadConfigFromPayload(config, item, key);
+        const value =
+          !labelKey && typeof label === "string"
+            ? config[label as keyof typeof config]?.label || label
+            : itemConfig?.label;
 
-      if (!value) {
-        return null;
-      }
+        if (labelFormatter) {
+          return <div className={cn("font-medium", labelClassName)}>{labelFormatter(value, payload)}</div>;
+        }
 
-      return <div className={cn("font-medium", labelClassName)}>{value}</div>;
-    }, [label, labelFormatter, payload, hideLabel, labelClassName, config, labelKey]);
+        if (!value) {
+          return null;
+        }
+
+        return <div className={cn("font-medium", labelClassName)}>{value}</div>;
+      }, [label, labelFormatter, payload, hideLabel, labelClassName, config, labelKey]);
 
     if (!active || !payload?.length) {
       return null;

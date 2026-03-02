@@ -1,11 +1,15 @@
-export type DRValue = "Surface" | "Intermediate" | "Deep" | "Meta";
-export type SEValue = "Single" | "DualTrack" | "MultiTrack" | "Divergent";
-export type SRValue = "Rare" | "Selective" | "Regular" | "Constant";
-export type CVValue = "Deadline" | "Clarity" | "InfoExhaustion" | "Intuition";
+import type {
+  CVValue,
+  DRValue,
+  Difficulty,
+  DimensionKey,
+  SEValue,
+  SRValue,
+} from "@/lib/constants";
 
-export type DimensionKey = "DR" | "SE" | "SR" | "CV";
+export type { CVValue, DRValue, Difficulty, DimensionKey, SEValue, SRValue };
+
 export type DimensionValue = DRValue | SEValue | SRValue | CVValue;
-export type Difficulty = "EASY" | "MEDIUM" | "HARD";
 
 export interface Profile {
   id: string;

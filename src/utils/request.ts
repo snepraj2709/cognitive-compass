@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { APIError } from "@/utils/apiError";
+import { APIError, RATE_LIMIT_EXCEEDED } from "@/utils/apiError";
 import { checkRateLimit } from "@/utils/rateLimiter";
 
 export function getClientIp(request: NextRequest) {
@@ -16,7 +16,7 @@ export async function enforceRateLimit(
 ): Promise<void> {
   const result = await checkRateLimit(identifier, limitPerMinute);
   if (!result.allowed) {
-    throw new APIError(429, "RATE_LIMITED", "Too many requests", {
+    throw new APIError(RATE_LIMIT_EXCEEDED.code, "Too many requests", RATE_LIMIT_EXCEEDED.statusCode, {
       limit: result.limit,
       remaining: result.remaining,
       resetAt: result.resetAt,

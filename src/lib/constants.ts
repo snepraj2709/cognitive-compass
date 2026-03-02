@@ -1,18 +1,18 @@
-import type {
-  CVValue,
-  DRValue,
-  Difficulty,
-  DimensionKey,
-  SEValue,
-  SRValue,
-} from "@/types/game";
-
 export const DR_VALUES = ["Surface", "Intermediate", "Deep", "Meta"] as const;
 export const SE_VALUES = ["Single", "DualTrack", "MultiTrack", "Divergent"] as const;
 export const SR_VALUES = ["Rare", "Selective", "Regular", "Constant"] as const;
 export const CV_VALUES = ["Deadline", "Clarity", "InfoExhaustion", "Intuition"] as const;
 
 export const DIMENSION_KEYS = ["DR", "SE", "SR", "CV"] as const;
+export const DIFFICULTY_LEVELS = ["EASY", "MEDIUM", "HARD"] as const;
+
+export type DRValue = typeof DR_VALUES[number];
+export type SEValue = typeof SE_VALUES[number];
+export type SRValue = typeof SR_VALUES[number];
+export type CVValue = typeof CV_VALUES[number];
+export type DimensionKey = typeof DIMENSION_KEYS[number];
+export type DimSelections = Record<DimensionKey, string | null>;
+export type Difficulty = typeof DIFFICULTY_LEVELS[number];
 
 export const DIMENSION_LABELS: Record<DimensionKey, string> = {
   DR: "Reasoning Depth",
@@ -76,8 +76,10 @@ export const DIFFICULTY_ORDER: Record<Difficulty, number> = {
   HARD: 2,
 };
 
-export const SESSION_TTL_SECONDS = 7_200;
+export const SESSION_TTL_SECONDS = 7200;
 export const PROFILE_CACHE_TTL_SECONDS = 86_400;
+export const MAX_FEEDBACK_TOKENS = 1000;
+export const RATE_LIMIT_REQUESTS_PER_MINUTE = 10;
 
 export const XP_BASE: Record<Difficulty, number> = {
   EASY: 10,

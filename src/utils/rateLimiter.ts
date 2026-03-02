@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { redis } from "@/lib/redis";
-import { logger } from "@/utils/logger";
+import logger from "@/utils/logger";
 
 interface RateLimitResult {
   allowed: boolean;

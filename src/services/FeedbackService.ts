@@ -1,7 +1,7 @@
 import type { CVValue, DRValue, SEValue, SRValue } from "@/types/game";
-import { ANTHROPIC_MODEL, DIMENSION_LABELS } from "@/lib/constants";
+import { ANTHROPIC_MODEL, DIMENSION_LABELS, MAX_FEEDBACK_TOKENS } from "@/lib/constants";
 import { anthropic } from "@/lib/anthropic";
-import { logger } from "@/utils/logger";
+import logger from "@/utils/logger";
 
 interface FeedbackProfile {
   name: string;
@@ -108,7 +108,7 @@ export class FeedbackService {
       try {
         const stream = anthropic.messages.stream({
           model: process.env.ANTHROPIC_MODEL ?? ANTHROPIC_MODEL,
-          max_tokens: 220,
+          max_tokens: MAX_FEEDBACK_TOKENS,
           system:
             "You are CogOS feedback coach. Be concise (80-100 words), use exact scenario phrases when possible, and contrast incorrect choices against correct dimensions clearly.",
           messages: [{ role: "user", content: prompt }],
@@ -140,7 +140,10 @@ export class FeedbackService {
         logger.warn({ err: error, attempt }, "Feedback streaming failed");
 
         if (attempt < RETRY_BACKOFF_MS.length) {
-          await delay(RETRY_BACKOFF_MS[attempt]);
+          const retryDelay = RETRY_BACKOFF_MS[attempt];
+          if (retryDelay !== undefined) {
+            await delay(retryDelay);
+          }
           continue;
         }
 
