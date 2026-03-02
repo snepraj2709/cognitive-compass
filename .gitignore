@@ -12,6 +12,9 @@ dist
 dist-ssr
 .next
 out
+coverage
+test-results
+playwright-report
 *.local
 .env
 *.tsbuildinfo

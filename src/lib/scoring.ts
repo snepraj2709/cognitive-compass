@@ -51,6 +51,10 @@ export function identifyStrongDimension(accuracy: DimensionAccuracy): DimensionK
 }
 
 export function computeXP(score: number, difficulty: Difficulty, timeTakenMs: number, clueUsed: boolean): number {
+  if (score <= 0) {
+    return 0;
+  }
+
   const base = XP_BASE[difficulty] || 10;
   const scoreMultiplier = (score / 4) * 2;
   let speedBonus = 0;

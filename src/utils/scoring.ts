@@ -71,6 +71,10 @@ export function computeXP(
   timeTakenMs: number,
   clueUsed: boolean
 ): number {
+  if (score <= 0) {
+    return 0;
+  }
+
   const base = XP_BASE[difficulty];
   const scoreMultiplier = (score / 4) * 2;
   const speedBonus = timeTakenMs < 30_000 ? 5 : timeTakenMs < 60_000 ? 2 : 0;

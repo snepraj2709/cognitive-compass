@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Attempt, CVValue, DRValue, Difficulty, GameSession, Profile, SEValue, SRValue, SessionStatus } from "@prisma/client";
 
 function createProfile(id: string, difficulty: Difficulty, sortOrder: number): Profile {
@@ -156,11 +156,17 @@ async function setupHarness(): Promise<SessionServiceTestHarness> {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.resetModules();
 });
 
 describe("SessionService", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-02T10:00:00.000Z"));
+  });
+
   it("creates session with EASY -> MEDIUM -> HARD profile order and caches session", async () => {
     const { SessionService, prisma, redisGet, redisSetEx } = await setupHarness();
 

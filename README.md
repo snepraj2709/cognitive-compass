@@ -135,7 +135,11 @@ This repository is for developers working on a single Next.js application that s
 
 ### Testing and tooling
 
-- Vitest + Testing Library/JSDOM setup
+- Vitest + Testing Library/JSDOM setup (`tests/setup.ts`)
+- Unit tests for scoring and feedback fallback behavior (`tests/unit/`)
+- Integration API lifecycle tests with Prisma + Redis mocks (`tests/integration/`)
+- Playwright E2E smoke test for guest flow (`tests/e2e/game.spec.ts`)
+- V8 coverage reporting via `@vitest/coverage-v8`
 - ESLint + Next lint
 - TypeScript strict checks
 
@@ -185,8 +189,14 @@ This repository is for developers working on a single Next.js application that s
 |   |   `-- next-auth.d.ts           # NextAuth type augmentation
 |   `-- auth.ts                      # NextAuth config and callbacks
 |-- tailwind.config.ts
+|-- playwright.config.ts
 |-- next.config.ts
 |-- vitest.config.ts
+|-- tests/
+|   |-- setup.ts
+|   |-- unit/
+|   |-- integration/
+|   `-- e2e/
 `-- package.json
 ```
 
@@ -227,6 +237,7 @@ Then ensure all required variables are present:
 | `NEXTAUTH_URL` | Yes | Canonical app URL for NextAuth callbacks/session URLs. |
 | `DATABASE_URL` | Yes | Prisma/Postgres connection string. |
 | `DIRECT_URL` | Yes | Prisma direct DB URL for migrations/introspection (declared in `schema.prisma`). |
+| `TEST_DATABASE_URL` | No | Separate Postgres URL used by integration tests (`tests/integration/session.api.test.ts`). |
 | `UPSTASH_REDIS_REST_URL` | No | Upstash Redis REST endpoint. |
 | `UPSTASH_REDIS_REST_TOKEN` | No | Upstash Redis REST token. |
 | `ANTHROPIC_API_KEY` | No | Enables Anthropic streaming feedback. |
@@ -239,6 +250,7 @@ Notes:
 - `DIRECT_URL` is required by Prisma schema but is not currently listed in `.env.example`; add it manually.
 - If Anthropic variables are missing, feedback falls back to deterministic non-LLM text.
 - If Redis variables are missing, rate limiting falls back to in-process memory buckets (not shared across instances).
+- If `TEST_DATABASE_URL` is not set, integration tests are skipped by design.
 
 ### Running the project
 
@@ -547,6 +559,8 @@ For authenticated sessions, completion also updates:
 | `npm run type-check` | Run TypeScript check (`tsc --noEmit`). |
 | `npm run test` | Run Vitest test suite once. |
 | `npm run test:watch` | Run Vitest in watch mode. |
+| `npm run test:coverage` | Run Vitest with V8 coverage output. |
+| `npm run test:e2e` | Run Playwright E2E smoke tests. |
 | `npm run db:migrate` | Run Prisma development migrations. |
 | `npm run db:seed` | Seed canonical profile data. |
 
@@ -605,7 +619,8 @@ After deployment:
 
 ## Known Issues and Limitations
 
-- Test coverage is minimal (`src/test/example.test.ts` only).
+- Integration tests require a dedicated migrated Postgres database via `TEST_DATABASE_URL`.
+- Playwright E2E tests require local port binding and Playwright browser binaries.
 - No Dockerfile / docker-compose manifests are present.
 - No CI workflow directory (`.github/workflows`) is present.
 - Credentials auth currently has no registration/signup API or UI in this repo.
@@ -623,4 +638,5 @@ The following commands were run successfully against this repository:
 - `npm run type-check`
 - `npm run lint`
 - `npm run test`
+- `npm run test:coverage`
 - `npm run build`
