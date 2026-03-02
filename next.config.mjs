@@ -4,6 +4,7 @@ process.env.NEXT_FONT_GOOGLE_MOCKED_RESPONSES ??= path.join(process.cwd(), "next
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: "standalone",
   typescript: { ignoreBuildErrors: false },
   eslint: { ignoreDuringBuilds: false },
 };
