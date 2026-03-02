@@ -2,7 +2,6 @@ import { randomUUID } from "crypto";
 import type {
   Attempt,
   CVValue,
-  DimensionCode,
   DRValue,
   GameSession,
   Profile,
@@ -172,7 +171,7 @@ function sortProfiles(profiles: StoredProfile[]) {
   });
 }
 
-function toDimensionCode(value: "DR" | "SE" | "SR" | "CV"): DimensionCode {
+function toDimensionCode(value: "DR" | "SE" | "SR" | "CV"): "DR" | "SE" | "SR" | "CV" {
   return value;
 }
 

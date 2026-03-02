@@ -79,8 +79,8 @@ model UserStats {
   seAccuracy        Float         @default(0)
   srAccuracy        Float         @default(0)
   cvAccuracy        Float         @default(0)
-  weakestDimension  DimensionCode?
-  strongestDimension DimensionCode?
+  weakestDimension  String?
+  strongestDimension String?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 }
@@ -99,10 +99,13 @@ model Profile {
   answerSR  SRValue
   answerCV  CVValue
   isActive  Boolean    @default(true)
-  sortOrder Int
+  sortOrder Int        @default(0)
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   attempts  Attempt[]
+
+  @@index([difficulty])
+  @@index([isActive])
 }
 
 model GameSession {
@@ -121,6 +124,9 @@ model GameSession {
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
   attempts     Attempt[]
+
+  @@index([userId])
+  @@index([status])
 }
 
 model Attempt {
