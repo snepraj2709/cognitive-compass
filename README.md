@@ -80,6 +80,22 @@ This repository is for developers working on a single Next.js application that s
 - In-memory fallback limiter is used when Redis is unavailable.
 - Sensitive-field redaction in Pino logs.
 
+### Frontend Enhancement (PHASE-5)
+
+- Boot-time loading skeleton (`Booting CogOS...`) now appears on `/`, `/play`, and `/results` while session bootstrap runs.
+- Game route UI is wrapped in `GameErrorBoundary` with fallback recovery: "Something went wrong. Your progress may be lost." + "Start New Game".
+- Submit flow now shows a disabled button spinner during streaming and a pulsing analysis placeholder before first feedback chunk.
+- Keyboard accessibility improvements:
+  - dimension options explicitly support Enter/Space selection
+  - richer option `aria-label` values include dimension + option + description
+  - submit button `aria-label` reflects whether all dimensions are selected
+- Reasoning Depth shortcuts are available in gameplay: press `1-4` to set `DR` (`Surface`, `Intermediate`, `Deep`, `Meta`) when no editable field is focused.
+- First-visit tooltip explains the `1-4` shortcut and is persisted in local storage.
+- Results radar chart rendering is client-only via `next/dynamic` + `ssr: false` to keep Recharts out of SSR/main path.
+- Mobile resilience at narrow widths includes overflow-safe profile text, >=44px submit touch target, and scrollable feedback panel for long content.
+- Reduced motion support is enabled via `@media (prefers-reduced-motion: reduce)` animation/transition overrides.
+- Session persistence key remains `cogos:sessionId`.
+
 ### Internal jobs / schedulers
 
 - No cron jobs, queue workers, or background schedulers are implemented in this repository.

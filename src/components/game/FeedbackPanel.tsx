@@ -20,7 +20,7 @@ export function FeedbackPanel({ score, feedback, onNext, isLastProfile }: Feedba
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4 }}
-      className="space-y-6"
+      className="max-h-[calc(100vh-7rem)] space-y-6 overflow-y-auto pr-1 sm:max-h-none sm:overflow-visible sm:pr-0"
     >
       {/* Score */}
       <div className="surface-glass rounded-lg p-6 text-center">
@@ -71,7 +71,7 @@ export function FeedbackPanel({ score, feedback, onNext, isLastProfile }: Feedba
         className="surface-glass rounded-lg p-5"
       >
         <div className="mb-2 dim-label">Analysis</div>
-        <p className="text-sm leading-relaxed text-foreground/85">{feedback}</p>
+        <p className="break-words text-sm leading-relaxed text-foreground/85">{feedback}</p>
       </motion.div>
 
       {/* Next */}

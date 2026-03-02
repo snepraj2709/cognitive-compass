@@ -3,6 +3,8 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { IntroScreen } from "@/components/game/IntroScreen";
+import { BootingCogOS } from "@/components/game/BootingCogOS";
+import { GameErrorBoundary } from "@/components/ui/GameErrorBoundary";
 import { useGameStore } from "@/stores/gameStore";
 
 export default function HomePage() {
@@ -32,8 +34,16 @@ export default function HomePage() {
   };
 
   if (status === "RESTORING") {
-    return null;
+    return (
+      <GameErrorBoundary>
+        <BootingCogOS />
+      </GameErrorBoundary>
+    );
   }
 
-  return <IntroScreen onStart={handleStart} />;
+  return (
+    <GameErrorBoundary>
+      <IntroScreen onStart={handleStart} />
+    </GameErrorBoundary>
+  );
 }

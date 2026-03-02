@@ -1,18 +1,24 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
-import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from "recharts";
 import type { SessionSummary as SummaryType } from "@/types/game";
 import { DIMENSION_LABELS } from "@/lib/constants";
 import type { DimensionKey } from "@/types/game";
+import type { SessionRadarChartDatum } from "@/components/game/SessionRadarChart";
 
 interface SessionSummaryProps {
   summary: SummaryType;
   onPlayAgain: () => void;
 }
 
+const RadarChart = dynamic(() => import("@/components/game/SessionRadarChart"), {
+  ssr: false,
+  loading: () => <div className="h-48 animate-pulse rounded-xl bg-white/5" />,
+});
+
 export function SessionSummary({ summary, onPlayAgain }: SessionSummaryProps) {
-  const radarData = (["DR", "SE", "SR", "CV"] as DimensionKey[]).map((dim) => ({
+  const radarData: SessionRadarChartDatum[] = (["DR", "SE", "SR", "CV"] as DimensionKey[]).map((dim) => ({
     dimension: DIMENSION_LABELS[dim],
     accuracy: Math.round(summary.dimensionAccuracy[dim]),
     fullMark: 100,
@@ -48,28 +54,7 @@ export function SessionSummary({ summary, onPlayAgain }: SessionSummaryProps) {
         className="surface-glass rounded-lg p-4"
       >
         <div className="dim-label mb-2 text-center">Cognitive Profile</div>
-        <ResponsiveContainer width="100%" height={260}>
-          <RadarChart data={radarData}>
-            <PolarGrid stroke="hsl(0 0% 100% / 0.08)" />
-            <PolarAngleAxis
-              dataKey="dimension"
-              tick={{ fill: "hsl(0 0% 100% / 0.6)", fontSize: 11, fontFamily: "Space Mono" }}
-            />
-            <PolarRadiusAxis
-              angle={30}
-              domain={[0, 100]}
-              tick={false}
-              axisLine={false}
-            />
-            <Radar
-              name="Accuracy"
-              dataKey="accuracy"
-              stroke="hsl(263 90% 66%)"
-              fill="hsl(263 90% 66% / 0.2)"
-              strokeWidth={2}
-            />
-          </RadarChart>
-        </ResponsiveContainer>
+        <RadarChart radarData={radarData} />
       </motion.div>
 
       {/* Profile Results */}

@@ -10,6 +10,7 @@ import type {
   SessionStateResponse,
   SessionSummary,
 } from "@/types/game";
+import { COGOS_SESSION_STORAGE_KEY } from "@/lib/constants";
 
 interface ScoreEventPayload {
   total: number;
@@ -72,13 +73,11 @@ const EMPTY_SELECTIONS: DimSelections = {
   CV: null,
 };
 
-const STORAGE_SESSION_KEY = "cogos:sessionId";
-
 function getStoredSessionId() {
   if (typeof window === "undefined") {
     return null;
   }
-  return window.localStorage.getItem(STORAGE_SESSION_KEY);
+  return window.localStorage.getItem(COGOS_SESSION_STORAGE_KEY);
 }
 
 function persistSessionId(sessionId: string | null) {
@@ -87,9 +86,9 @@ function persistSessionId(sessionId: string | null) {
   }
 
   if (sessionId) {
-    window.localStorage.setItem(STORAGE_SESSION_KEY, sessionId);
+    window.localStorage.setItem(COGOS_SESSION_STORAGE_KEY, sessionId);
   } else {
-    window.localStorage.removeItem(STORAGE_SESSION_KEY);
+    window.localStorage.removeItem(COGOS_SESSION_STORAGE_KEY);
   }
 }
 
@@ -173,9 +172,20 @@ export const useGameStore = create<GameState>((set, get) => ({
         set({
           status: "IDLE",
           sessionId: null,
+          guestToken: null,
           currentProfile: null,
+          profileIndex: 0,
           totalProfiles: 0,
+          selections: { ...EMPTY_SELECTIONS },
+          clueRevealed: false,
+          startTimestamp: null,
           completedScores: [],
+          currentFeedback: "",
+          streamedFeedback: "",
+          currentScore: null,
+          summary: null,
+          nextProfile: null,
+          pendingSessionComplete: false,
           error: null,
         });
         return;
@@ -210,9 +220,20 @@ export const useGameStore = create<GameState>((set, get) => ({
         set({
           status: "IDLE",
           sessionId: null,
+          guestToken: null,
           currentProfile: null,
+          profileIndex: 0,
           totalProfiles: 0,
+          selections: { ...EMPTY_SELECTIONS },
+          clueRevealed: false,
+          startTimestamp: null,
           completedScores: [],
+          currentFeedback: "",
+          streamedFeedback: "",
+          currentScore: null,
+          summary: null,
+          nextProfile: null,
+          pendingSessionComplete: false,
           error: null,
         });
         return;
@@ -225,9 +246,20 @@ export const useGameStore = create<GameState>((set, get) => ({
       set({
         status: "IDLE",
         sessionId: null,
+        guestToken: null,
         currentProfile: null,
+        profileIndex: 0,
         totalProfiles: 0,
+        selections: { ...EMPTY_SELECTIONS },
+        clueRevealed: false,
+        startTimestamp: null,
         completedScores: [],
+        currentFeedback: "",
+        streamedFeedback: "",
+        currentScore: null,
+        summary: null,
+        nextProfile: null,
+        pendingSessionComplete: false,
         error: error instanceof Error ? error.message : "Failed to restore session",
       });
     }

@@ -95,6 +95,8 @@ export const RATE_LIMIT = {
 } as const;
 
 export const ANTHROPIC_MODEL = "claude-sonnet-4-20250514";
+export const COGOS_SESSION_STORAGE_KEY = "cogos:sessionId";
+export const COGOS_DR_SHORTCUT_TIP_SEEN_KEY = "cogos:drShortcutTipSeen";
 
 export const META_INSIGHT_BY_DIMENSION: Record<DimensionKey, string> = {
   CV: "Convergence Style is your blind spot. Watch for somatic language: 'feel', 'sense', 'gut', 'instinct' signals Intuition. 'pattern finally clicked' signals Clarity. External pressure signals Deadline.",

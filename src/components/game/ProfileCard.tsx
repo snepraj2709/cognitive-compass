@@ -18,13 +18,13 @@ export function ProfileCard({ profile, clueRevealed, onRevealClue }: ProfileCard
       transition={{ duration: 0.3 }}
       className="surface-glass rounded-lg p-6"
     >
-      <div className="mb-4 flex items-center gap-3">
+      <div className="mb-4 flex min-w-0 items-center gap-3">
         <span className="text-3xl" role="img" aria-label={profile.name}>
           {profile.avatar}
         </span>
-        <div>
-          <h2 className="text-lg font-bold">{profile.name}</h2>
-          <div className="flex items-center gap-2">
+        <div className="min-w-0">
+          <h2 className="break-words text-lg font-bold">{profile.name}</h2>
+          <div className="flex min-w-0 items-center gap-2">
             <span
               className={`inline-block rounded-full px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider ${
                 profile.difficulty === "EASY"
@@ -36,12 +36,12 @@ export function ProfileCard({ profile, clueRevealed, onRevealClue }: ProfileCard
             >
               {profile.difficulty}
             </span>
-            <span className="text-xs text-muted-foreground">{profile.context}</span>
+            <span className="min-w-0 break-words text-xs text-muted-foreground">{profile.context}</span>
           </div>
         </div>
       </div>
 
-      <blockquote className="mb-4 font-body text-sm leading-relaxed text-foreground/90 italic">
+      <blockquote className="mb-4 break-words font-body text-sm italic leading-relaxed text-foreground/90">
         {profile.scenario}
       </blockquote>
 
