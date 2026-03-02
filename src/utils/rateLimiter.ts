@@ -1,66 +1,90 @@
-import { randomUUID } from "crypto";
-import { redis } from "@/lib/redis";
+import { expire, incr, redis } from "@/lib/redis";
 import logger from "@/utils/logger";
 
-interface RateLimitResult {
-  allowed: boolean;
-  limit: number;
-  remaining: number;
-  resetAt: number;
+interface LocalBucket {
+  count: number;
+  expiresAt: number;
 }
 
-const localBuckets = new Map<string, number[]>();
+const WINDOW_MS = 60_000;
+const REDIS_TTL_SECONDS = 120;
+const localBuckets = new Map<string, LocalBucket>();
 
-function localSlidingWindow(identifier: string, limitPerMinute: number): RateLimitResult {
+function getCurrentMinuteTimestamp(now: number): number {
+  return Math.floor(now / WINDOW_MS) * WINDOW_MS;
+}
+
+function computeRetryAfterMs(now: number): number {
+  const currentMinute = getCurrentMinuteTimestamp(now);
+  return Math.max(0, currentMinute + WINDOW_MS - now);
+}
+
+function purgeExpiredLocalBuckets(now: number) {
+  for (const [key, bucket] of localBuckets.entries()) {
+    if (bucket.expiresAt <= now) {
+      localBuckets.delete(key);
+    }
+  }
+}
+
+function checkLocalRateLimit(identifier: string, limitPerMinute: number): { allowed: boolean; retryAfterMs: number } {
   const now = Date.now();
-  const windowStart = now - 60_000;
+  purgeExpiredLocalBuckets(now);
 
-  const existing = localBuckets.get(identifier) ?? [];
-  const recent = existing.filter((ts) => ts > windowStart);
-  recent.push(now);
-  localBuckets.set(identifier, recent);
+  const minuteTimestamp = getCurrentMinuteTimestamp(now);
+  const bucketKey = `${identifier}:${minuteTimestamp}`;
+  const existing = localBuckets.get(bucketKey);
 
-  const used = recent.length;
-  const remaining = Math.max(0, limitPerMinute - used);
+  const count = (existing?.count ?? 0) + 1;
+  localBuckets.set(bucketKey, {
+    count,
+    expiresAt: minuteTimestamp + WINDOW_MS * 2,
+  });
+
+  if (count > limitPerMinute) {
+    return {
+      allowed: false,
+      retryAfterMs: computeRetryAfterMs(now),
+    };
+  }
 
   return {
-    allowed: used <= limitPerMinute,
-    limit: limitPerMinute,
-    remaining,
-    resetAt: now + 60_000,
+    allowed: true,
+    retryAfterMs: 0,
   };
 }
 
-export async function checkRateLimit(identifier: string, limitPerMinute: number): Promise<RateLimitResult> {
+export async function checkRateLimit(
+  identifier: string,
+  limitPerMinute: number
+): Promise<{ allowed: boolean; retryAfterMs: number }> {
   if (!redis) {
-    return localSlidingWindow(identifier, limitPerMinute);
+    return checkLocalRateLimit(identifier, limitPerMinute);
   }
 
   const now = Date.now();
-  const windowStart = now - 60_000;
-  const key = `ratelimit:${identifier}`;
+  const minuteTimestamp = getCurrentMinuteTimestamp(now);
+  const key = `ratelimit:${identifier}:${minuteTimestamp}`;
 
   try {
-    const pipeline = redis.multi();
-    pipeline.zremrangebyscore(key, 0, windowStart);
-    pipeline.zadd(key, { score: now, member: `${now}:${randomUUID()}` });
-    pipeline.zcount(key, windowStart, now);
-    pipeline.expire(key, 120);
+    const count = await incr(key);
+    if (count === 1) {
+      await expire(key, REDIS_TTL_SECONDS);
+    }
 
-    const results = await pipeline.exec();
-    const usedRaw = Array.isArray(results) ? results[2] : 0;
-    const used = typeof usedRaw === "number" ? usedRaw : Number(usedRaw ?? 0);
-
-    const remaining = Math.max(0, limitPerMinute - used);
+    if (count > limitPerMinute) {
+      return {
+        allowed: false,
+        retryAfterMs: computeRetryAfterMs(now),
+      };
+    }
 
     return {
-      allowed: used <= limitPerMinute,
-      limit: limitPerMinute,
-      remaining,
-      resetAt: now + 60_000,
+      allowed: true,
+      retryAfterMs: 0,
     };
   } catch (error) {
-    logger.warn({ err: error }, "Rate limiter fallback to local window");
-    return localSlidingWindow(identifier, limitPerMinute);
+    logger.warn({ err: error }, "Redis rate limit failed, using local fallback");
+    return checkLocalRateLimit(identifier, limitPerMinute);
   }
 }

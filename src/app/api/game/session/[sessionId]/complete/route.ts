@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { RATE_LIMIT_REQUESTS_PER_MINUTE } from "@/lib/constants";
+import { RATE_LIMIT } from "@/lib/constants";
 import { SessionService } from "@/services/SessionService";
 import { APIError, withErrorHandler } from "@/utils/apiError";
-import { enforceRateLimit, getClientIp } from "@/utils/request";
+import { enforceRateLimit, getRateLimitIdentifier } from "@/utils/request";
 import { CompleteSessionSchema } from "@/validations/game.schemas";
 
 function getSessionId(params: Record<string, string | string[] | undefined> | undefined) {
@@ -35,10 +35,9 @@ export async function POST(
   context: CompleteRouteContext
 ): Promise<NextResponse> {
   return withErrorHandler(request, async () => {
-    const sessionId = getSessionId(context.params);
-    const rateIdentifier = `${sessionId}:${getClientIp(request)}`;
+    await enforceRateLimit(getRateLimitIdentifier(request), RATE_LIMIT.COMPLETE_PER_MINUTE);
 
-    await enforceRateLimit(rateIdentifier, RATE_LIMIT_REQUESTS_PER_MINUTE);
+    const sessionId = getSessionId(context.params);
     await parseCompleteSessionPayload(request);
 
     const summary = await SessionService.completeSession(sessionId);

@@ -40,6 +40,9 @@ This repository is for developers working on a single Next.js application that s
 
 - Session create, restore, submit, and complete endpoints.
 - Session TTL enforcement (`SESSION_TTL_SECONDS = 7200`).
+- Redis cache keys:
+  - `profiles:all` (`24h` TTL)
+  - `session:{sessionId}` (session TTL)
 - Local session persistence in browser storage (`cogos:sessionId`).
 - Automatic restore on page load.
 - Status transitions across `IDLE`, `RESTORING`, `PLAYING`, `SUBMITTING`, `FEEDBACK`, `COMPLETE`.
@@ -72,7 +75,9 @@ This repository is for developers working on a single Next.js application that s
 - Unified API error wrapper with consistent response shape.
 - Request-scoped IDs via `x-request-id`.
 - Rate limiting on all `/api/game/*` routes before business logic.
-- Redis-backed sliding window limiter with in-memory fallback.
+- Rate-limit identifiers prefer the Auth.js session token (hashed), then fall back to client IP.
+- Redis-backed minute-bucket limiter (`ratelimit:{identifier}:{current_minute_timestamp}`) with `INCR + EXPIRE`.
+- In-memory fallback limiter is used when Redis is unavailable.
 - Sensitive-field redaction in Pino logs.
 
 ### Internal jobs / schedulers
@@ -105,6 +110,7 @@ This repository is for developers working on a single Next.js application that s
 
 - PostgreSQL (Prisma datasource)
 - Upstash Redis (optional caching/rate limit backend)
+- Redis helper API in `src/lib/redis.ts`: `setEx`, `get`, `del`, `incr`, `expire`
 
 ### AI
 
@@ -156,7 +162,7 @@ This repository is for developers working on a single Next.js application that s
 |   |-- lib/
 |   |   |-- constants.ts             # Dimension values, limits, XP bases
 |   |   |-- prisma.ts                # Prisma singleton
-|   |   |-- redis.ts                 # Optional Redis client
+|   |   |-- redis.ts                 # Optional Redis client + helper wrappers
 |   |   `-- anthropic.ts             # Optional Anthropic client
 |   |-- types/
 |   |   |-- game.ts                  # Shared game/session types

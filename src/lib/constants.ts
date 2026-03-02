@@ -97,8 +97,8 @@ export const RATE_LIMIT = {
 export const ANTHROPIC_MODEL = "claude-sonnet-4-20250514";
 
 export const META_INSIGHT_BY_DIMENSION: Record<DimensionKey, string> = {
-  DR: "Reasoning depth is the main growth edge. Track how far each person follows cause and effect.",
-  SE: "Exploration width is the main growth edge. Count how many alternatives are truly considered.",
-  SR: "Reflection frequency is the main growth edge. Watch for explicit self-checks and assumption audits.",
-  CV: "Convergence style is the main growth edge. Focus on what actually triggers the final commitment.",
+  CV: "Convergence Style is your blind spot. Watch for somatic language: 'feel', 'sense', 'gut', 'instinct' signals Intuition. 'pattern finally clicked' signals Clarity. External pressure signals Deadline.",
+  DR: "Reasoning Depth trips you up most. Count causal links explicitly: how many 'because' or 'therefore' steps are in the thinking? Meta thinkers describe the rules they use to make rules.",
+  SE: "Exploration Width is where you lose points. Look for how many options they generate before deciding — Single stops at 1, Divergent generates novel paths not in the original problem space.",
+  SR: "Reflection Frequency is subtle. Rare = only when crisis hits. Selective = pattern-triggered. Regular = scheduled. Constant = real-time, happening mid-decision, not just after.",
 };

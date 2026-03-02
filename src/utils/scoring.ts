@@ -1,64 +1,45 @@
-import type {
-  CVValue,
-  DRValue,
-  Difficulty,
-  DimensionAccuracy,
-  DimensionKey,
-  SEValue,
-  SRValue,
-  ScoreBreakdown,
-} from "@/types/game";
-import { DIMENSION_KEYS, XP_BASE } from "@/lib/constants";
+import { DIMENSION_KEYS, type DimSelections, type Difficulty, type DimensionKey, XP_BASE } from "@/lib/constants";
 
-export interface AttemptSelections {
-  DR: DRValue;
-  SE: SEValue;
-  SR: SRValue;
-  CV: CVValue;
+export interface ScoreBreakdown {
+  DR: boolean;
+  SE: boolean;
+  SR: boolean;
+  CV: boolean;
+  total: number;
 }
 
-export function scoreAttempt(
-  selections: AttemptSelections,
-  correct: AttemptSelections
-): ScoreBreakdown {
-  const DR = selections.DR === correct.DR;
-  const SE = selections.SE === correct.SE;
-  const SR = selections.SR === correct.SR;
-  const CV = selections.CV === correct.CV;
+export interface DimensionAccuracy {
+  DR: number;
+  SE: number;
+  SR: number;
+  CV: number;
+}
+
+function isCorrectSelection(selected: string | null, correct: string | null): boolean {
+  return selected !== null && correct !== null && selected === correct;
+}
+
+export function scoreAttempt(selections: DimSelections, answer: DimSelections): ScoreBreakdown {
+  const DR = isCorrectSelection(selections.DR, answer.DR);
+  const SE = isCorrectSelection(selections.SE, answer.SE);
+  const SR = isCorrectSelection(selections.SR, answer.SR);
+  const CV = isCorrectSelection(selections.CV, answer.CV);
+
   const total = [DR, SE, SR, CV].filter(Boolean).length;
-
-  return {
-    DR,
-    SE,
-    SR,
-    CV,
-    total,
-    maxScore: 4,
-  };
+  return { DR, SE, SR, CV, total };
 }
 
-export function computeXP(score: number, difficulty: Difficulty, timeTakenMs: number, clueUsed: boolean): number {
-  const base = XP_BASE[difficulty] ?? XP_BASE.EASY;
-  const scoreMultiplier = score / 4;
-  const speedBonus = timeTakenMs <= 30_000 ? 5 : timeTakenMs <= 60_000 ? 2 : 0;
-  const cluePenalty = clueUsed ? 3 : 0;
-
-  return Math.max(0, Math.round(base * scoreMultiplier + speedBonus - cluePenalty));
-}
-
-export function computeSessionAccuracy(
-  attempts: Array<{ scoreDR: boolean; scoreSE: boolean; scoreSR: boolean; scoreCV: boolean }>
-): DimensionAccuracy {
+export function computeSessionAccuracy(attempts: ScoreBreakdown[]): DimensionAccuracy {
   if (attempts.length === 0) {
     return { DR: 0, SE: 0, SR: 0, CV: 0 };
   }
 
   const totals = attempts.reduce(
     (acc, attempt) => {
-      if (attempt.scoreDR) acc.DR += 1;
-      if (attempt.scoreSE) acc.SE += 1;
-      if (attempt.scoreSR) acc.SR += 1;
-      if (attempt.scoreCV) acc.CV += 1;
+      if (attempt.DR) acc.DR += 1;
+      if (attempt.SE) acc.SE += 1;
+      if (attempt.SR) acc.SR += 1;
+      if (attempt.CV) acc.CV += 1;
       return acc;
     },
     { DR: 0, SE: 0, SR: 0, CV: 0 }
@@ -82,4 +63,18 @@ export function identifyStrongDimension(accuracy: DimensionAccuracy): DimensionK
   return DIMENSION_KEYS.reduce((strongest, current) =>
     accuracy[current] > accuracy[strongest] ? current : strongest
   );
+}
+
+export function computeXP(
+  score: number,
+  difficulty: Difficulty,
+  timeTakenMs: number,
+  clueUsed: boolean
+): number {
+  const base = XP_BASE[difficulty];
+  const scoreMultiplier = (score / 4) * 2;
+  const speedBonus = timeTakenMs < 30_000 ? 5 : timeTakenMs < 60_000 ? 2 : 0;
+  const cluePenalty = clueUsed ? 3 : 0;
+
+  return Math.max(0, Math.round(base * scoreMultiplier + speedBonus - cluePenalty));
 }

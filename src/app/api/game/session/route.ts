@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { RATE_LIMIT_REQUESTS_PER_MINUTE } from "@/lib/constants";
+import { RATE_LIMIT } from "@/lib/constants";
 import { SessionService } from "@/services/SessionService";
-import { APIError, withErrorHandler } from "@/utils/apiError";
-import { getClientIp, enforceRateLimit } from "@/utils/request";
+import { withErrorHandler } from "@/utils/apiError";
+import { enforceRateLimit, getRateLimitIdentifier } from "@/utils/request";
 import { NewSessionSchema } from "@/validations/game.schemas";
 
 async function parseCreateSessionPayload(request: NextRequest) {
@@ -21,27 +21,22 @@ async function parseCreateSessionPayload(request: NextRequest) {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   return withErrorHandler(request, async () => {
+    await enforceRateLimit(getRateLimitIdentifier(request), RATE_LIMIT.CREATE_SESSION_PER_MINUTE);
+
+    await parseCreateSessionPayload(request);
     const session = await auth();
     const userId = session?.user?.id;
 
-    await parseCreateSessionPayload(request);
-    const rateIdentifier = userId ?? getClientIp(request);
-
-    await enforceRateLimit(rateIdentifier, RATE_LIMIT_REQUESTS_PER_MINUTE);
-
     const created = await SessionService.createSession(userId);
-
-    if (!created.currentProfile) {
-      throw new APIError("SESSION_PROFILE_MISSING", "Session created without a current profile", 500);
-    }
+    const currentProfile = SessionService.toPublicProfile(created.firstProfile);
 
     return NextResponse.json({
-      sessionId: created.sessionId,
-      guestToken: created.guestToken,
-      currentProfile: created.currentProfile,
-      totalProfiles: created.totalProfiles,
-      profileIndex: created.profileIndex,
-      completedScores: created.completedScores,
+      sessionId: created.session.id,
+      guestToken: created.session.guestToken,
+      currentProfile,
+      totalProfiles: created.session.profileOrder.length,
+      profileIndex: created.session.currentIndex,
+      completedScores: [],
     });
   });
 }

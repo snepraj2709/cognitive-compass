@@ -6,19 +6,19 @@ import type {
   GameSession,
   Profile,
   SEValue,
-  SessionStatus,
   SRValue,
-  UserStats,
 } from "@prisma/client";
-import { Difficulty } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { redis } from "@/lib/redis";
+import { del, get, setEx } from "@/lib/redis";
 import {
   DIFFICULTY_ORDER,
   META_INSIGHT_BY_DIMENSION,
   PROFILE_CACHE_TTL_SECONDS,
   SESSION_TTL_SECONDS,
+  type DimSelections,
+  type DimensionKey,
 } from "@/lib/constants";
+import type { PublicProfile, SessionStateResponse, SessionSummary } from "@/types/game";
 import {
   APIError,
   PROFILE_ALREADY_ANSWERED,
@@ -32,136 +32,121 @@ import {
   identifyStrongDimension,
   identifyWeakDimension,
   scoreAttempt,
-  type AttemptSelections,
+  type ScoreBreakdown,
 } from "@/utils/scoring";
 
-export interface PublicProfile {
-  id: string;
-  slug: string;
-  name: string;
-  avatar: string;
-  difficulty: Difficulty;
-  scenario: string;
-  context: string;
-  clues: string[];
-  sortOrder: number;
+interface CachedProfile extends Omit<Profile, "createdAt" | "updatedAt"> {
+  createdAt: string;
+  updatedAt: string;
 }
 
-export interface SessionState {
-  sessionId: string;
-  guestToken: string | null;
-  status: SessionStatus;
-  profileIndex: number;
-  totalProfiles: number;
-  totalScore: number;
-  maxScore: number;
-  currentProfile: PublicProfile | null;
-  completedScores: number[];
+interface CachedSession extends Omit<GameSession, "startedAt" | "completedAt" | "expiresAt" | "createdAt" | "updatedAt"> {
+  startedAt: string;
+  completedAt: string | null;
   expiresAt: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
-export interface SubmitAnswerMetadata {
-  clueUsed?: boolean;
-  timeTakenMs?: number;
-}
-
-export interface SubmitAnswerResult {
-  score: {
-    total: number;
-    breakdown: {
-      DR: boolean;
-      SE: boolean;
-      SR: boolean;
-      CV: boolean;
-    };
-  };
-  correct: AttemptSelections;
-  selected: AttemptSelections;
-  nextProfile: PublicProfile | null;
-  isSessionComplete: boolean;
-  nextIndex: number;
-  profileForFeedback: {
-    name: string;
-    context: string;
-    scenario: string;
-    clues: string[];
-    answerDR: DRValue;
-    answerSE: SEValue;
-    answerSR: SRValue;
-    answerCV: CVValue;
-  };
-}
-
-export interface SessionSummary {
+interface SessionAttemptForStats {
+  scoreDR: boolean;
+  scoreSE: boolean;
+  scoreSR: boolean;
+  scoreCV: boolean;
   totalScore: number;
-  maxScore: number;
-  accuracy: number;
-  profileResults: Array<{
-    profileId: string;
-    profileName: string;
-    selections: AttemptSelections;
-    correctAnswers: AttemptSelections;
-    score: {
-      DR: boolean;
-      SE: boolean;
-      SR: boolean;
-      CV: boolean;
-      total: number;
-      maxScore: number;
-    };
-    feedback: string;
-    clueUsed: boolean;
-    timeTakenMs: number;
-  }>;
-  dimensionAccuracy: {
-    DR: number;
-    SE: number;
-    SR: number;
-    CV: number;
-  };
-  weakestDimension: "DR" | "SE" | "SR" | "CV";
-  strongestDimension: "DR" | "SE" | "SR" | "CV";
-  metaInsight: string;
-  xpEarned: number;
-}
-
-interface StoredProfile {
-  id: string;
-  slug: string;
-  name: string;
-  avatar: string;
-  difficulty: Difficulty;
-  scenario: string;
-  context: string;
-  clues: string[];
-  sortOrder: number;
-  answerDR: DRValue;
-  answerSE: SEValue;
-  answerSR: SRValue;
-  answerCV: CVValue;
 }
 
 const PROFILE_CACHE_KEY = "profiles:all";
+const SESSION_CACHE_PREFIX = "session:";
 
-function toPublicProfile(profile: StoredProfile): PublicProfile {
+function getSessionCacheKey(sessionId: string): string {
+  return `${SESSION_CACHE_PREFIX}${sessionId}`;
+}
+
+function isProfile(value: unknown): value is CachedProfile {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Partial<CachedProfile>;
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.slug === "string" &&
+    typeof candidate.name === "string" &&
+    typeof candidate.difficulty === "string" &&
+    Array.isArray(candidate.clues)
+  );
+}
+
+function fromCachedProfile(cached: CachedProfile): Profile {
   return {
-    id: profile.id,
-    slug: profile.slug,
-    name: profile.name,
-    avatar: profile.avatar,
-    difficulty: profile.difficulty,
-    scenario: profile.scenario,
-    context: profile.context,
-    clues: profile.clues,
-    sortOrder: profile.sortOrder,
+    ...cached,
+    createdAt: new Date(cached.createdAt),
+    updatedAt: new Date(cached.updatedAt),
   };
 }
 
-function getSessionCacheKey(sessionId: string) {
-  return `session:${sessionId}`;
+function parseProfilesCache(raw: string | null): Profile[] | null {
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed) || !parsed.every(isProfile)) {
+      return null;
+    }
+
+    return parsed.map(fromCachedProfile);
+  } catch {
+    return null;
+  }
 }
 
-function sortProfiles(profiles: StoredProfile[]) {
+function isCachedSession(value: unknown): value is CachedSession {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Partial<CachedSession>;
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.status === "string" &&
+    Array.isArray(candidate.profileOrder) &&
+    typeof candidate.currentIndex === "number" &&
+    typeof candidate.expiresAt === "string"
+  );
+}
+
+function fromCachedSession(cached: CachedSession): GameSession {
+  return {
+    ...cached,
+    startedAt: new Date(cached.startedAt),
+    completedAt: cached.completedAt ? new Date(cached.completedAt) : null,
+    expiresAt: new Date(cached.expiresAt),
+    createdAt: new Date(cached.createdAt),
+    updatedAt: new Date(cached.updatedAt),
+  };
+}
+
+function parseSessionCache(raw: string | null): GameSession | null {
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isCachedSession(parsed)) {
+      return null;
+    }
+
+    return fromCachedSession(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function sortProfiles(profiles: Profile[]): Profile[] {
   return [...profiles].sort((a, b) => {
     const difficultyDelta = DIFFICULTY_ORDER[a.difficulty] - DIFFICULTY_ORDER[b.difficulty];
     if (difficultyDelta !== 0) {
@@ -171,92 +156,74 @@ function sortProfiles(profiles: StoredProfile[]) {
   });
 }
 
-function toDimensionCode(value: "DR" | "SE" | "SR" | "CV"): "DR" | "SE" | "SR" | "CV" {
+function mapProfileToSelections(profile: Profile): DimSelections {
+  return {
+    DR: profile.answerDR,
+    SE: profile.answerSE,
+    SR: profile.answerSR,
+    CV: profile.answerCV,
+  };
+}
+
+function ensureSelection(value: string | null, dimension: DimensionKey): string {
+  if (!value) {
+    throw new APIError("INVALID_SELECTIONS", `Missing ${dimension} selection`, 422);
+  }
+
   return value;
 }
 
-function isStoredProfileArray(value: unknown): value is StoredProfile[] {
-  if (!Array.isArray(value)) {
-    return false;
-  }
-
-  return value.every((profile) => {
-    if (!profile || typeof profile !== "object") {
-      return false;
-    }
-    const candidate = profile as Partial<StoredProfile>;
-    return (
-      typeof candidate.id === "string" &&
-      typeof candidate.slug === "string" &&
-      typeof candidate.name === "string" &&
-      typeof candidate.answerDR === "string" &&
-      typeof candidate.answerSE === "string" &&
-      typeof candidate.answerSR === "string" &&
-      typeof candidate.answerCV === "string"
-    );
-  });
-}
-
-function isSessionState(value: unknown): value is SessionState {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const candidate = value as Partial<SessionState>;
-  return (
-    typeof candidate.sessionId === "string" &&
-    typeof candidate.profileIndex === "number" &&
-    typeof candidate.totalProfiles === "number" &&
-    typeof candidate.totalScore === "number" &&
-    typeof candidate.maxScore === "number" &&
-    typeof candidate.expiresAt === "string" &&
-    Array.isArray(candidate.completedScores)
-  );
-}
-
 export class SessionService {
-  private static async loadProfiles(): Promise<StoredProfile[]> {
-    if (redis) {
-      const cached = await redis.get<unknown>(PROFILE_CACHE_KEY);
-      if (isStoredProfileArray(cached)) {
-        return sortProfiles(cached);
-      }
+  static toPublicProfile(profile: Profile): PublicProfile {
+    return {
+      id: profile.id,
+      slug: profile.slug,
+      name: profile.name,
+      avatar: profile.avatar,
+      difficulty: profile.difficulty,
+      scenario: profile.scenario,
+      context: profile.context,
+      clues: profile.clues,
+      sortOrder: profile.sortOrder,
+    };
+  }
+
+  private static async cacheSession(session: GameSession): Promise<void> {
+    const ttlSeconds = Math.max(1, Math.floor((session.expiresAt.getTime() - Date.now()) / 1000));
+    await setEx(getSessionCacheKey(session.id), JSON.stringify(session), ttlSeconds);
+  }
+
+  private static async getProfiles(): Promise<Profile[]> {
+    const cachedProfiles = parseProfilesCache(await get(PROFILE_CACHE_KEY));
+    if (cachedProfiles) {
+      return sortProfiles(cachedProfiles);
     }
 
     const profiles = await prisma.profile.findMany({
       where: { isActive: true },
-      select: {
-        id: true,
-        slug: true,
-        name: true,
-        avatar: true,
-        difficulty: true,
-        scenario: true,
-        context: true,
-        clues: true,
-        sortOrder: true,
-        answerDR: true,
-        answerSE: true,
-        answerSR: true,
-        answerCV: true,
-      },
     });
 
     const sorted = sortProfiles(profiles);
-
-    if (redis) {
-      await redis.set(PROFILE_CACHE_KEY, sorted, { ex: PROFILE_CACHE_TTL_SECONDS });
-    }
-
+    await setEx(PROFILE_CACHE_KEY, JSON.stringify(sorted), PROFILE_CACHE_TTL_SECONDS);
     return sorted;
   }
 
-  private static async getProfilesByIds(profileIds: string[]): Promise<StoredProfile[]> {
-    const allProfiles = await this.loadProfiles();
-    const byId = new Map(allProfiles.map((profile) => [profile.id, profile]));
+  static async getProfileById(profileId: string): Promise<Profile | null> {
+    const profiles = await this.getProfiles();
+    const fromCache = profiles.find((profile) => profile.id === profileId);
+    if (fromCache) {
+      return fromCache;
+    }
+
+    return prisma.profile.findUnique({ where: { id: profileId } });
+  }
+
+  private static async getProfilesByIds(profileIds: string[]): Promise<Profile[]> {
+    const profiles = await this.getProfiles();
+    const profileMap = new Map(profiles.map((profile) => [profile.id, profile]));
     const ordered = profileIds
-      .map((profileId) => byId.get(profileId))
-      .filter((profile): profile is StoredProfile => Boolean(profile));
+      .map((profileId) => profileMap.get(profileId))
+      .filter((profile): profile is Profile => Boolean(profile));
 
     if (ordered.length === profileIds.length) {
       return ordered;
@@ -264,177 +231,148 @@ export class SessionService {
 
     const dbProfiles = await prisma.profile.findMany({
       where: { id: { in: profileIds } },
-      select: {
-        id: true,
-        slug: true,
-        name: true,
-        avatar: true,
-        difficulty: true,
-        scenario: true,
-        context: true,
-        clues: true,
-        sortOrder: true,
-        answerDR: true,
-        answerSE: true,
-        answerSR: true,
-        answerCV: true,
-      },
     });
 
-    const fallback = new Map(dbProfiles.map((profile) => [profile.id, profile]));
+    const dbMap = new Map(dbProfiles.map((profile) => [profile.id, profile]));
     return profileIds
-      .map((profileId) => fallback.get(profileId))
-      .filter((profile): profile is StoredProfile => Boolean(profile));
+      .map((profileId) => dbMap.get(profileId))
+      .filter((profile): profile is Profile => Boolean(profile));
   }
 
-  private static buildSessionState(
-    session: Pick<GameSession, "id" | "guestToken" | "status" | "currentIndex" | "totalScore" | "maxScore" | "expiresAt">,
-    profiles: StoredProfile[],
-    attempts: Array<Pick<Attempt, "totalScore">>
-  ): SessionState {
-    const currentProfile = profiles[session.currentIndex];
-
-    return {
-      sessionId: session.id,
-      guestToken: session.guestToken,
-      status: session.status,
-      profileIndex: session.currentIndex,
-      totalProfiles: profiles.length,
-      totalScore: session.totalScore,
-      maxScore: session.maxScore,
-      currentProfile: currentProfile ? toPublicProfile(currentProfile) : null,
-      completedScores: attempts.map((attempt) => attempt.totalScore),
-      expiresAt: session.expiresAt.toISOString(),
-    };
-  }
-
-  private static async cacheSession(state: SessionState) {
-    if (!redis) {
-      return;
-    }
-    const ttl = Math.max(1, Math.floor((new Date(state.expiresAt).getTime() - Date.now()) / 1000));
-    await redis.set(getSessionCacheKey(state.sessionId), state, { ex: ttl });
-  }
-
-  private static async refreshSessionCache(sessionId: string) {
-    const dbSession = await prisma.gameSession.findUnique({
-      where: { id: sessionId },
-      include: {
-        attempts: {
-          select: { totalScore: true },
-          orderBy: { createdAt: "asc" },
-        },
-      },
-    });
-
-    if (!dbSession) {
-      return null;
-    }
-
-    const profiles = await this.getProfilesByIds(dbSession.profileOrder);
-    const state = this.buildSessionState(dbSession, profiles, dbSession.attempts);
-    await this.cacheSession(state);
-    return state;
-  }
-
-  static async createSession(userId?: string, guestToken?: string): Promise<SessionState> {
-    const profiles = await this.loadProfiles();
-
+  static async createSession(
+    userId?: string,
+    guestToken?: string
+  ): Promise<{ session: GameSession; firstProfile: Profile }> {
+    const profiles = await this.getProfiles();
     if (profiles.length === 0) {
-      throw new APIError("NO_ACTIVE_PROFILES", "No active profiles are available", 500);
+      throw new APIError("NO_ACTIVE_PROFILES", "No active profiles available", 500);
     }
 
-    const finalGuestToken = userId ? null : guestToken ?? randomUUID();
-    const expiresAt = new Date(Date.now() + SESSION_TTL_SECONDS * 1000);
+    const firstProfile = profiles[0];
+    if (!firstProfile) {
+      throw new APIError("NO_ACTIVE_PROFILES", "No active profiles available", 500);
+    }
 
+    const expiresAt = new Date(Date.now() + SESSION_TTL_SECONDS * 1000);
     const session = await prisma.gameSession.create({
       data: {
-        userId,
-        guestToken: finalGuestToken,
+        userId: userId ?? null,
+        guestToken: userId ? null : guestToken ?? randomUUID(),
         status: "ACTIVE",
         profileOrder: profiles.map((profile) => profile.id),
+        currentIndex: 0,
+        totalScore: 0,
         maxScore: profiles.length * 4,
         expiresAt,
       },
     });
 
-    const state = this.buildSessionState(session, profiles, []);
-    await this.cacheSession(state);
-    return state;
+    await this.cacheSession(session);
+    return { session, firstProfile };
   }
 
-  static async getSession(sessionId: string): Promise<SessionState | null> {
-    if (redis) {
-      const cached = await redis.get<unknown>(getSessionCacheKey(sessionId));
-      if (isSessionState(cached)) {
-        if (new Date(cached.expiresAt).getTime() < Date.now()) {
-          await prisma.gameSession.updateMany({
-            where: { id: sessionId, status: "ACTIVE" },
-            data: { status: "EXPIRED" },
-          });
-          return {
-            ...cached,
-            status: "EXPIRED",
-          };
-        }
-        return cached;
+  static async getSession(sessionId: string): Promise<GameSession | null> {
+    const cached = parseSessionCache(await get(getSessionCacheKey(sessionId)));
+    if (cached) {
+      if (cached.status === "EXPIRED") {
+        return null;
       }
+
+      if (cached.status === "ACTIVE" && cached.expiresAt.getTime() < Date.now()) {
+        await prisma.gameSession.updateMany({
+          where: { id: sessionId, status: "ACTIVE" },
+          data: { status: "EXPIRED" },
+        });
+        await del(getSessionCacheKey(sessionId));
+        return null;
+      }
+
+      return cached;
     }
 
     const session = await prisma.gameSession.findUnique({
       where: { id: sessionId },
-      include: {
-        attempts: {
-          select: { totalScore: true },
-          orderBy: { createdAt: "asc" },
-        },
-      },
     });
 
     if (!session) {
       return null;
     }
 
-    if (session.expiresAt.getTime() < Date.now() && session.status === "ACTIVE") {
+    if (session.status === "EXPIRED") {
+      return null;
+    }
+
+    if (session.status === "ACTIVE" && session.expiresAt.getTime() < Date.now()) {
+      await prisma.gameSession.updateMany({
+        where: { id: sessionId, status: "ACTIVE" },
+        data: { status: "EXPIRED" },
+      });
+      return null;
+    }
+
+    await this.cacheSession(session);
+    return session;
+  }
+
+  static async isSessionExpired(sessionId: string): Promise<boolean> {
+    const session = await prisma.gameSession.findUnique({
+      where: { id: sessionId },
+      select: { id: true, status: true, expiresAt: true },
+    });
+
+    if (!session) {
+      return false;
+    }
+
+    if (session.status === "EXPIRED") {
+      return true;
+    }
+
+    if (session.status === "ACTIVE" && session.expiresAt.getTime() < Date.now()) {
       await prisma.gameSession.update({
         where: { id: sessionId },
         data: { status: "EXPIRED" },
       });
-      session.status = "EXPIRED";
+      await del(getSessionCacheKey(sessionId));
+      return true;
     }
 
-    const profiles = await this.getProfilesByIds(session.profileOrder);
-    const state = this.buildSessionState(session, profiles, session.attempts);
-    await this.cacheSession(state);
+    return false;
+  }
 
-    return state;
+  static async getCurrentProfile(session: GameSession): Promise<Profile | null> {
+    const profileId = session.profileOrder[session.currentIndex];
+    if (!profileId) {
+      return null;
+    }
+
+    return this.getProfileById(profileId);
   }
 
   static async submitAnswer(
     sessionId: string,
     profileId: string,
-    selections: AttemptSelections,
-    metadata: SubmitAnswerMetadata
-  ): Promise<SubmitAnswerResult> {
+    selections: DimSelections,
+    metadata: { clueUsed: boolean; timeTakenMs: number }
+  ): Promise<{ scoreBreakdown: ScoreBreakdown; isLastProfile: boolean }> {
     const session = await prisma.gameSession.findUnique({
       where: { id: sessionId },
-      include: {
-        attempts: {
-          where: { profileId },
-          select: { id: true },
-        },
-      },
     });
 
     if (!session) {
       throw new APIError(SESSION_NOT_FOUND.code, "Session not found", SESSION_NOT_FOUND.statusCode);
     }
 
-    if (session.expiresAt.getTime() < Date.now()) {
+    if (session.status === "EXPIRED") {
+      throw new APIError(SESSION_EXPIRED.code, "Session has expired", SESSION_EXPIRED.statusCode);
+    }
+
+    if (session.status === "ACTIVE" && session.expiresAt.getTime() < Date.now()) {
       await prisma.gameSession.update({
         where: { id: sessionId },
         data: { status: "EXPIRED" },
       });
+      await del(getSessionCacheKey(sessionId));
       throw new APIError(SESSION_EXPIRED.code, "Session has expired", SESSION_EXPIRED.statusCode);
     }
 
@@ -448,14 +386,19 @@ export class SessionService {
 
     const expectedProfileId = session.profileOrder[session.currentIndex];
     if (expectedProfileId !== profileId) {
-      throw new APIError(
-        "PROFILE_MISMATCH",
-        "Submitted profile does not match current session index",
-        409
-      );
+      throw new APIError("PROFILE_MISMATCH", "Submitted profile does not match current profile", 409);
     }
 
-    if (session.attempts.length > 0) {
+    const existingAttempt = await prisma.attempt.findUnique({
+      where: {
+        sessionId_profileId: {
+          sessionId,
+          profileId,
+        },
+      },
+    });
+
+    if (existingAttempt) {
       throw new APIError(
         PROFILE_ALREADY_ANSWERED.code,
         "Attempt already submitted for this profile",
@@ -463,180 +406,125 @@ export class SessionService {
       );
     }
 
-    const profile = await prisma.profile.findUnique({
-      where: { id: profileId },
-      select: {
-        id: true,
-        slug: true,
-        name: true,
-        avatar: true,
-        difficulty: true,
-        scenario: true,
-        context: true,
-        clues: true,
-        sortOrder: true,
-        answerDR: true,
-        answerSE: true,
-        answerSR: true,
-        answerCV: true,
-      },
-    });
-
+    const profile = await this.getProfileById(profileId);
     if (!profile) {
       throw new APIError("PROFILE_NOT_FOUND", "Profile not found", 404);
     }
 
-    const correct: AttemptSelections = {
-      DR: profile.answerDR,
-      SE: profile.answerSE,
-      SR: profile.answerSR,
-      CV: profile.answerCV,
+    const normalizedSelections = {
+      DR: ensureSelection(selections.DR, "DR") as DRValue,
+      SE: ensureSelection(selections.SE, "SE") as SEValue,
+      SR: ensureSelection(selections.SR, "SR") as SRValue,
+      CV: ensureSelection(selections.CV, "CV") as CVValue,
     };
 
-    const score = scoreAttempt(selections, correct);
-    const nextIndex = session.currentIndex + 1;
+    const correctSelections = mapProfileToSelections(profile);
+    const scoreBreakdown = scoreAttempt(normalizedSelections, correctSelections);
+    const isLastProfile = session.currentIndex + 1 >= session.profileOrder.length;
+
+    computeXP(scoreBreakdown.total, profile.difficulty, metadata.timeTakenMs, metadata.clueUsed);
 
     await prisma.$transaction([
       prisma.attempt.create({
         data: {
           sessionId,
           profileId,
-          selectionDR: selections.DR,
-          selectionSE: selections.SE,
-          selectionSR: selections.SR,
-          selectionCV: selections.CV,
-          scoreDR: score.DR,
-          scoreSE: score.SE,
-          scoreSR: score.SR,
-          scoreCV: score.CV,
-          totalScore: score.total,
-          clueUsed: metadata.clueUsed ?? false,
+          selectionDR: normalizedSelections.DR,
+          selectionSE: normalizedSelections.SE,
+          selectionSR: normalizedSelections.SR,
+          selectionCV: normalizedSelections.CV,
+          scoreDR: scoreBreakdown.DR,
+          scoreSE: scoreBreakdown.SE,
+          scoreSR: scoreBreakdown.SR,
+          scoreCV: scoreBreakdown.CV,
+          totalScore: scoreBreakdown.total,
+          clueUsed: metadata.clueUsed,
           timeTakenMs: metadata.timeTakenMs,
         },
       }),
       prisma.gameSession.update({
         where: { id: sessionId },
         data: {
-          currentIndex: nextIndex,
-          totalScore: { increment: score.total },
+          totalScore: { increment: scoreBreakdown.total },
+          currentIndex: { increment: 1 },
         },
       }),
     ]);
 
-    const sessionProfiles = await this.getProfilesByIds(session.profileOrder);
-    const nextProfile = sessionProfiles[nextIndex] ? toPublicProfile(sessionProfiles[nextIndex]) : null;
+    const updatedSession = await prisma.gameSession.findUnique({ where: { id: sessionId } });
+    if (updatedSession) {
+      await this.cacheSession(updatedSession);
+    }
 
-    await this.refreshSessionCache(sessionId);
-
-    return {
-      score: {
-        total: score.total,
-        breakdown: {
-          DR: score.DR,
-          SE: score.SE,
-          SR: score.SR,
-          CV: score.CV,
-        },
-      },
-      correct,
-      selected: selections,
-      nextProfile,
-      isSessionComplete: nextIndex >= session.profileOrder.length,
-      nextIndex,
-      profileForFeedback: {
-        name: profile.name,
-        context: profile.context,
-        scenario: profile.scenario,
-        clues: profile.clues,
-        answerDR: profile.answerDR,
-        answerSE: profile.answerSE,
-        answerSR: profile.answerSR,
-        answerCV: profile.answerCV,
-      },
-    };
+    return { scoreBreakdown, isLastProfile };
   }
 
   static async saveAttemptFeedback(sessionId: string, profileId: string, feedbackText: string): Promise<void> {
     await prisma.attempt.updateMany({
-      where: {
-        sessionId,
-        profileId,
-      },
-      data: {
-        feedbackText,
-      },
+      where: { sessionId, profileId },
+      data: { feedbackText },
     });
-
-    await this.refreshSessionCache(sessionId);
   }
 
-  private static async upsertUserStats(
+  private static async updateUserStats(
     userId: string,
-    attempts: Array<Pick<Attempt, "scoreDR" | "scoreSE" | "scoreSR" | "scoreCV" | "totalScore">>,
-    accuracy: { DR: number; SE: number; SR: number; CV: number }
-  ) {
-    const existing = await prisma.userStats.findUnique({ where: { userId } });
+    attempts: SessionAttemptForStats[],
+    sessionAccuracy: { DR: number; SE: number; SR: number; CV: number }
+  ): Promise<void> {
+    const existing = await prisma.userStats.findUnique({
+      where: { userId },
+    });
 
-    const profilesCount = attempts.length;
+    const profileCount = attempts.length;
     const totalCorrect = attempts.reduce((sum, attempt) => sum + attempt.totalScore, 0);
 
     if (!existing) {
-      const weakest = identifyWeakDimension(accuracy);
-      const strongest = identifyStrongDimension(accuracy);
-
       await prisma.userStats.create({
         data: {
           userId,
           totalSessions: 1,
-          totalProfiles: profilesCount,
+          totalProfiles: profileCount,
           totalCorrect,
-          drAccuracy: accuracy.DR,
-          seAccuracy: accuracy.SE,
-          srAccuracy: accuracy.SR,
-          cvAccuracy: accuracy.CV,
-          weakestDimension: toDimensionCode(weakest),
-          strongestDimension: toDimensionCode(strongest),
+          drAccuracy: sessionAccuracy.DR,
+          seAccuracy: sessionAccuracy.SE,
+          srAccuracy: sessionAccuracy.SR,
+          cvAccuracy: sessionAccuracy.CV,
+          weakestDimension: identifyWeakDimension(sessionAccuracy),
+          strongestDimension: identifyStrongDimension(sessionAccuracy),
         },
       });
       return;
     }
 
-    const weightedProfiles = existing.totalProfiles + profilesCount;
-    const drAccuracy = weightedProfiles
-      ? (existing.drAccuracy * existing.totalProfiles + accuracy.DR * profilesCount) / weightedProfiles
-      : 0;
-    const seAccuracy = weightedProfiles
-      ? (existing.seAccuracy * existing.totalProfiles + accuracy.SE * profilesCount) / weightedProfiles
-      : 0;
-    const srAccuracy = weightedProfiles
-      ? (existing.srAccuracy * existing.totalProfiles + accuracy.SR * profilesCount) / weightedProfiles
-      : 0;
-    const cvAccuracy = weightedProfiles
-      ? (existing.cvAccuracy * existing.totalProfiles + accuracy.CV * profilesCount) / weightedProfiles
-      : 0;
+    const nextProfiles = existing.totalProfiles + profileCount;
 
     const mergedAccuracy = {
-      DR: drAccuracy,
-      SE: seAccuracy,
-      SR: srAccuracy,
-      CV: cvAccuracy,
+      DR: nextProfiles
+        ? (existing.drAccuracy * existing.totalProfiles + sessionAccuracy.DR * profileCount) / nextProfiles
+        : 0,
+      SE: nextProfiles
+        ? (existing.seAccuracy * existing.totalProfiles + sessionAccuracy.SE * profileCount) / nextProfiles
+        : 0,
+      SR: nextProfiles
+        ? (existing.srAccuracy * existing.totalProfiles + sessionAccuracy.SR * profileCount) / nextProfiles
+        : 0,
+      CV: nextProfiles
+        ? (existing.cvAccuracy * existing.totalProfiles + sessionAccuracy.CV * profileCount) / nextProfiles
+        : 0,
     };
-
-    const weakest = identifyWeakDimension(mergedAccuracy);
-    const strongest = identifyStrongDimension(mergedAccuracy);
 
     await prisma.userStats.update({
       where: { userId },
       data: {
         totalSessions: existing.totalSessions + 1,
-        totalProfiles: weightedProfiles,
+        totalProfiles: nextProfiles,
         totalCorrect: existing.totalCorrect + totalCorrect,
-        drAccuracy,
-        seAccuracy,
-        srAccuracy,
-        cvAccuracy,
-        weakestDimension: toDimensionCode(weakest),
-        strongestDimension: toDimensionCode(strongest),
+        drAccuracy: mergedAccuracy.DR,
+        seAccuracy: mergedAccuracy.SE,
+        srAccuracy: mergedAccuracy.SR,
+        cvAccuracy: mergedAccuracy.CV,
+        weakestDimension: identifyWeakDimension(mergedAccuracy),
+        strongestDimension: identifyStrongDimension(mergedAccuracy),
       },
     });
   }
@@ -644,22 +532,18 @@ export class SessionService {
   static async completeSession(sessionId: string): Promise<SessionSummary> {
     const session = await prisma.gameSession.findUnique({
       where: { id: sessionId },
-      include: {
-        attempts: {
-          orderBy: { createdAt: "asc" },
-        },
-      },
     });
 
     if (!session) {
       throw new APIError(SESSION_NOT_FOUND.code, "Session not found", SESSION_NOT_FOUND.statusCode);
     }
 
-    if (session.expiresAt.getTime() < Date.now()) {
+    if (session.status === "ACTIVE" && session.expiresAt.getTime() < Date.now()) {
       await prisma.gameSession.update({
         where: { id: sessionId },
         data: { status: "EXPIRED" },
       });
+      await del(getSessionCacheKey(sessionId));
       throw new APIError(SESSION_EXPIRED.code, "Session has expired", SESSION_EXPIRED.statusCode);
     }
 
@@ -673,58 +557,72 @@ export class SessionService {
       });
     }
 
+    const attempts = await prisma.attempt.findMany({
+      where: { sessionId },
+      orderBy: { createdAt: "asc" },
+    });
+
     const profiles = await this.getProfilesByIds(session.profileOrder);
     const profileMap = new Map(profiles.map((profile) => [profile.id, profile]));
 
-    const accuracy = computeSessionAccuracy(session.attempts);
-    const weakestDimension = identifyWeakDimension(accuracy);
-    const strongestDimension = identifyStrongDimension(accuracy);
+    const scoreBreakdowns = attempts.map((attempt) => ({
+      DR: attempt.scoreDR,
+      SE: attempt.scoreSE,
+      SR: attempt.scoreSR,
+      CV: attempt.scoreCV,
+      total: attempt.totalScore,
+    }));
 
-    const xpEarned = session.attempts.reduce((sum, attempt) => {
+    const dimensionAccuracy = computeSessionAccuracy(scoreBreakdowns);
+    const weakestDimension = identifyWeakDimension(dimensionAccuracy);
+    const strongestDimension = identifyStrongDimension(dimensionAccuracy);
+
+    const xpEarned = attempts.reduce((sum, attempt) => {
       const profile = profileMap.get(attempt.profileId);
-      const difficulty = profile?.difficulty ?? "EASY";
-      return sum + computeXP(attempt.totalScore, difficulty, attempt.timeTakenMs ?? 120_000, attempt.clueUsed);
+      if (!profile) {
+        return sum;
+      }
+
+      return (
+        sum +
+        computeXP(
+          attempt.totalScore,
+          profile.difficulty,
+          attempt.timeTakenMs ?? 120_000,
+          attempt.clueUsed
+        )
+      );
     }, 0);
 
     if (session.userId) {
-      await this.upsertUserStats(session.userId, session.attempts, accuracy);
+      await this.updateUserStats(session.userId, attempts, dimensionAccuracy);
 
-      const user = await prisma.user.findUnique({ where: { id: session.userId } });
+      const user = await prisma.user.findUnique({
+        where: { id: session.userId },
+        select: { id: true, xp: true },
+      });
+
       if (user) {
-        const updatedXp = user.xp + xpEarned;
-        const level = Math.floor(updatedXp / 100) + 1;
+        const nextXp = user.xp + xpEarned;
         await prisma.user.update({
-          where: { id: session.userId },
+          where: { id: user.id },
           data: {
-            xp: updatedXp,
-            level,
+            xp: nextXp,
+            level: Math.floor(nextXp / 100) + 1,
           },
         });
       }
     }
 
-    const profileResults = session.attempts.map((attempt) => {
+    const profileResults = attempts.map((attempt) => {
       const profile = profileMap.get(attempt.profileId);
-      const fallback: StoredProfile = {
-        id: attempt.profileId,
-        slug: "unknown",
-        name: "Unknown Profile",
-        avatar: "",
-        difficulty: "EASY",
-        scenario: "",
-        context: "",
-        clues: [],
-        sortOrder: 0,
-        answerDR: "Surface",
-        answerSE: "Single",
-        answerSR: "Rare",
-        answerCV: "Deadline",
-      };
-      const resolved = profile ?? fallback;
+      if (!profile) {
+        throw new APIError("PROFILE_NOT_FOUND", "Profile data missing for attempt summary", 500);
+      }
 
       return {
         profileId: attempt.profileId,
-        profileName: resolved.name,
+        profileName: profile.name,
         selections: {
           DR: attempt.selectionDR,
           SE: attempt.selectionSE,
@@ -732,10 +630,10 @@ export class SessionService {
           CV: attempt.selectionCV,
         },
         correctAnswers: {
-          DR: resolved.answerDR,
-          SE: resolved.answerSE,
-          SR: resolved.answerSR,
-          CV: resolved.answerCV,
+          DR: profile.answerDR,
+          SE: profile.answerSE,
+          SR: profile.answerSR,
+          CV: profile.answerCV,
         },
         score: {
           DR: attempt.scoreDR,
@@ -756,15 +654,36 @@ export class SessionService {
       maxScore: session.maxScore,
       accuracy: session.maxScore > 0 ? (session.totalScore / session.maxScore) * 100 : 0,
       profileResults,
-      dimensionAccuracy: accuracy,
+      dimensionAccuracy,
       weakestDimension,
       strongestDimension,
       metaInsight: META_INSIGHT_BY_DIMENSION[weakestDimension],
       xpEarned,
     };
 
-    await this.refreshSessionCache(sessionId);
-
+    await del(getSessionCacheKey(sessionId));
     return summary;
+  }
+
+  static async toSessionStateResponse(session: GameSession): Promise<SessionStateResponse> {
+    const currentProfile = await this.getCurrentProfile(session);
+    const attempts = await prisma.attempt.findMany({
+      where: { sessionId: session.id },
+      orderBy: { createdAt: "asc" },
+      select: { totalScore: true },
+    });
+
+    return {
+      sessionId: session.id,
+      guestToken: session.guestToken,
+      status: session.status,
+      profileIndex: session.currentIndex,
+      totalProfiles: session.profileOrder.length,
+      totalScore: session.totalScore,
+      maxScore: session.maxScore,
+      currentProfile: currentProfile ? this.toPublicProfile(currentProfile) : null,
+      completedScores: attempts.map((attempt) => attempt.totalScore),
+      expiresAt: session.expiresAt.toISOString(),
+    };
   }
 }
