@@ -47,8 +47,8 @@
     --glow-primary: 263 90% 66% / 0.15;
     --glow-cyan: 199 95% 60% / 0.15;
 
-    --font-mono: 'Space Mono', monospace;
-    --font-body: 'Sora', sans-serif;
+    --font-mono: var(--font-space-mono), monospace;
+    --font-body: var(--font-sora), sans-serif;
 
     --sidebar-background: 214 25% 8%;
     --sidebar-foreground: 0 0% 100%;

@@ -1,3 +1,5 @@
+"use client";
+
 import { motion } from "framer-motion";
 import type { DimensionKey, DimensionValue } from "@/types/game";
 import { DIMENSION_LABELS, DIMENSION_DESCRIPTIONS, DIMENSION_OPTIONS } from "@/lib/constants";

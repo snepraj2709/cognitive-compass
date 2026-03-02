@@ -1,3 +1,5 @@
+"use client";
+
 import { motion } from "framer-motion";
 import type { Profile } from "@/types/game";
 
@@ -62,7 +64,7 @@ export function ProfileCard({ profile, clueRevealed, onRevealClue }: ProfileCard
               key={i}
               className="rounded-md bg-primary/10 px-2 py-1 font-mono text-xs text-primary"
             >
-              "{clue}"
+              &quot;{clue}&quot;
             </span>
           ))}
         </motion.div>

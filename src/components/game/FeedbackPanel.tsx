@@ -1,3 +1,5 @@
+"use client";
+
 import { motion } from "framer-motion";
 import { Check, X } from "lucide-react";
 import type { DimensionKey } from "@/types/game";
