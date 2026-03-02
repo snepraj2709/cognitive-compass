@@ -1,10 +1,10 @@
 "use client";
 
 import { motion } from "framer-motion";
-import type { Profile } from "@/types/game";
+import type { PublicProfile } from "@/types/game";
 
 interface ProfileCardProps {
-  profile: Profile;
+  profile: PublicProfile;
   clueRevealed: boolean;
   onRevealClue: () => void;
 }

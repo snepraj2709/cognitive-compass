@@ -1,69 +1,293 @@
+"use client";
+
 import { create } from "zustand";
 import type {
-  GameStatus,
-  Profile,
   DimSelections,
   DimensionKey,
   DimensionValue,
-  AttemptResult,
+  GameStatus,
+  PublicProfile,
+  SessionStateResponse,
   SessionSummary,
 } from "@/types/game";
-import { PROFILES } from "@/data/profiles";
-import { scoreAttempt, computeSessionAccuracy, identifyWeakDimension, identifyStrongDimension, computeXP } from "@/lib/scoring";
-import { generateFeedback, generateMetaInsight } from "@/lib/feedback";
+
+interface ScoreEventPayload {
+  total: number;
+  breakdown: {
+    DR: boolean;
+    SE: boolean;
+    SR: boolean;
+    CV: boolean;
+  };
+}
+
+interface CreateSessionResponse {
+  sessionId: string;
+  guestToken: string | null;
+  currentProfile: PublicProfile;
+  totalProfiles: number;
+  profileIndex: number;
+  completedScores: number[];
+}
 
 interface GameState {
   status: GameStatus;
-  currentProfile: Profile | null;
+  sessionId: string | null;
+  guestToken: string | null;
+  currentProfile: PublicProfile | null;
   profileIndex: number;
   totalProfiles: number;
-  profiles: Profile[];
   selections: DimSelections;
   clueRevealed: boolean;
   startTimestamp: number | null;
-  attempts: AttemptResult[];
+  completedScores: number[];
   currentFeedback: string;
-  currentScore: { total: number; breakdown: { DR: boolean; SE: boolean; SR: boolean; CV: boolean } } | null;
+  streamedFeedback: string;
+  currentScore: ScoreEventPayload | null;
   summary: SessionSummary | null;
+  nextProfile: PublicProfile | null;
+  pendingSessionComplete: boolean;
+  hasBootstrapped: boolean;
+  error: string | null;
 
-  startGame: () => void;
+  bootstrapSession: () => Promise<void>;
+  startGame: () => Promise<void>;
+  restoreSessionById: (sessionId: string) => Promise<void>;
   setSelection: (dim: DimensionKey, value: DimensionValue) => void;
   revealClue: () => void;
-  submitAnswer: () => void;
-  goToNextProfile: () => void;
+  beginSubmitFlow: () => void;
+  applyScoreEvent: (payload: ScoreEventPayload) => void;
+  appendFeedbackChunk: (chunk: string) => void;
+  applyNextProfileEvent: (profile: PublicProfile | null, profileIndex: number) => void;
+  applySessionCompleteEvent: (profileIndex: number) => void;
+  finalizeSubmitFlow: () => void;
+  handleNextAfterFeedback: () => Promise<void>;
   resetGame: () => void;
+}
+
+const EMPTY_SELECTIONS: DimSelections = {
+  DR: null,
+  SE: null,
+  SR: null,
+  CV: null,
+};
+
+const STORAGE_SESSION_KEY = "cogos:sessionId";
+
+function getStoredSessionId() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  return window.localStorage.getItem(STORAGE_SESSION_KEY);
+}
+
+function persistSessionId(sessionId: string | null) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (sessionId) {
+    window.localStorage.setItem(STORAGE_SESSION_KEY, sessionId);
+  } else {
+    window.localStorage.removeItem(STORAGE_SESSION_KEY);
+  }
+}
+
+async function parseError(response: Response) {
+  try {
+    const data = (await response.json()) as { error?: { message?: string } };
+    return data.error?.message ?? `Request failed with status ${response.status}`;
+  } catch {
+    return `Request failed with status ${response.status}`;
+  }
+}
+
+function toPlayingState(session: SessionStateResponse) {
+  return {
+    sessionId: session.sessionId,
+    guestToken: session.guestToken,
+    status: "PLAYING" as const,
+    currentProfile: session.currentProfile,
+    profileIndex: session.profileIndex,
+    totalProfiles: session.totalProfiles,
+    completedScores: session.completedScores,
+    selections: { ...EMPTY_SELECTIONS },
+    clueRevealed: false,
+    startTimestamp: Date.now(),
+    currentFeedback: "",
+    streamedFeedback: "",
+    currentScore: null,
+    summary: null,
+    nextProfile: null,
+    pendingSessionComplete: false,
+    error: null,
+  };
 }
 
 export const useGameStore = create<GameState>((set, get) => ({
   status: "IDLE",
+  sessionId: null,
+  guestToken: null,
   currentProfile: null,
   profileIndex: 0,
-  totalProfiles: PROFILES.length,
-  profiles: [],
-  selections: { DR: null, SE: null, SR: null, CV: null },
+  totalProfiles: 0,
+  selections: { ...EMPTY_SELECTIONS },
   clueRevealed: false,
   startTimestamp: null,
-  attempts: [],
+  completedScores: [],
   currentFeedback: "",
+  streamedFeedback: "",
   currentScore: null,
   summary: null,
+  nextProfile: null,
+  pendingSessionComplete: false,
+  hasBootstrapped: false,
+  error: null,
 
-  startGame: () => {
-    const shuffled = [...PROFILES].sort((a, b) => a.sortOrder - b.sortOrder);
+  bootstrapSession: async () => {
+    const state = get();
+    if (state.hasBootstrapped) {
+      return;
+    }
+
+    set({ status: "RESTORING", hasBootstrapped: true, error: null });
+
+    const storedSessionId = getStoredSessionId();
+    if (!storedSessionId) {
+      set({ status: "IDLE" });
+      return;
+    }
+
+    await get().restoreSessionById(storedSessionId);
+  },
+
+  restoreSessionById: async (sessionId) => {
+    try {
+      const response = await fetch(`/api/game/session/${sessionId}`, {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      if (response.status === 404 || response.status === 410) {
+        persistSessionId(null);
+        set({
+          status: "IDLE",
+          sessionId: null,
+          currentProfile: null,
+          totalProfiles: 0,
+          completedScores: [],
+          error: null,
+        });
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(await parseError(response));
+      }
+
+      const data = (await response.json()) as SessionStateResponse;
+
+      if (data.status === "COMPLETED") {
+        const summaryResponse = await fetch(`/api/game/session/${data.sessionId}/complete`, {
+          method: "POST",
+        });
+
+        if (!summaryResponse.ok) {
+          throw new Error(await parseError(summaryResponse));
+        }
+
+        const summary = (await summaryResponse.json()) as SessionSummary;
+        set({
+          ...toPlayingState(data),
+          status: "COMPLETE",
+          summary,
+        });
+        return;
+      }
+
+      if (data.status === "EXPIRED") {
+        persistSessionId(null);
+        set({
+          status: "IDLE",
+          sessionId: null,
+          currentProfile: null,
+          totalProfiles: 0,
+          completedScores: [],
+          error: null,
+        });
+        return;
+      }
+
+      persistSessionId(data.sessionId);
+      set(toPlayingState(data));
+    } catch (error) {
+      persistSessionId(null);
+      set({
+        status: "IDLE",
+        sessionId: null,
+        currentProfile: null,
+        totalProfiles: 0,
+        completedScores: [],
+        error: error instanceof Error ? error.message : "Failed to restore session",
+      });
+    }
+  },
+
+  startGame: async () => {
+    const state = get();
+
     set({
-      status: "PLAYING",
-      profiles: shuffled,
-      profileIndex: 0,
-      currentProfile: shuffled[0],
-      totalProfiles: shuffled.length,
-      selections: { DR: null, SE: null, SR: null, CV: null },
-      clueRevealed: false,
-      startTimestamp: Date.now(),
-      attempts: [],
+      status: "SUBMITTING",
+      error: null,
       currentFeedback: "",
+      streamedFeedback: "",
       currentScore: null,
       summary: null,
+      nextProfile: null,
+      pendingSessionComplete: false,
     });
+
+    try {
+      const response = await fetch("/api/game/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          guestToken: state.guestToken ?? undefined,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await parseError(response));
+      }
+
+      const data = (await response.json()) as CreateSessionResponse;
+
+      persistSessionId(data.sessionId);
+      set({
+        status: "PLAYING",
+        sessionId: data.sessionId,
+        guestToken: data.guestToken,
+        currentProfile: data.currentProfile,
+        profileIndex: data.profileIndex,
+        totalProfiles: data.totalProfiles,
+        selections: { ...EMPTY_SELECTIONS },
+        clueRevealed: false,
+        startTimestamp: Date.now(),
+        completedScores: data.completedScores,
+        currentFeedback: "",
+        streamedFeedback: "",
+        currentScore: null,
+        summary: null,
+        nextProfile: null,
+        pendingSessionComplete: false,
+        error: null,
+      });
+    } catch (error) {
+      set({
+        status: "IDLE",
+        error: error instanceof Error ? error.message : "Failed to start game",
+      });
+    }
   },
 
   setSelection: (dim, value) => {
@@ -73,104 +297,136 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   revealClue: () => set({ clueRevealed: true }),
 
-  submitAnswer: () => {
-    const { currentProfile, selections, clueRevealed, startTimestamp, attempts } = get();
-    if (!currentProfile) return;
-    if (!selections.DR || !selections.SE || !selections.SR || !selections.CV) return;
-
-    set({ status: "SUBMITTING" });
-
-    const timeTaken = startTimestamp ? Date.now() - startTimestamp : 0;
-    const score = scoreAttempt(selections, {
-      DR: currentProfile.answerDR,
-      SE: currentProfile.answerSE,
-      SR: currentProfile.answerSR,
-      CV: currentProfile.answerCV,
-    });
-
-    const feedback = generateFeedback(currentProfile, selections, score);
-
-    const attempt: AttemptResult = {
-      profileId: currentProfile.id,
-      profileName: currentProfile.name,
-      selections: { ...selections },
-      correctAnswers: {
-        DR: currentProfile.answerDR,
-        SE: currentProfile.answerSE,
-        SR: currentProfile.answerSR,
-        CV: currentProfile.answerCV,
-      },
-      score,
-      feedback,
-      clueUsed: clueRevealed,
-      timeTakenMs: timeTaken,
-    };
-
+  beginSubmitFlow: () => {
     set({
-      status: "FEEDBACK",
-      currentFeedback: feedback,
-      currentScore: { total: score.total, breakdown: { DR: score.DR, SE: score.SE, SR: score.SR, CV: score.CV } },
-      attempts: [...attempts, attempt],
+      status: "SUBMITTING",
+      currentFeedback: "",
+      streamedFeedback: "",
+      currentScore: null,
+      nextProfile: null,
+      pendingSessionComplete: false,
+      error: null,
     });
   },
 
-  goToNextProfile: () => {
-    const { profileIndex, profiles, attempts } = get();
-    const nextIndex = profileIndex + 1;
+  applyScoreEvent: (payload) => {
+    set((state) => ({
+      currentScore: payload,
+      completedScores: [...state.completedScores, payload.total],
+    }));
+  },
 
-    if (nextIndex >= profiles.length) {
-      const accuracy = computeSessionAccuracy(attempts);
-      const weakest = identifyWeakDimension(accuracy);
-      const strongest = identifyStrongDimension(accuracy);
-      const totalScore = attempts.reduce((sum, a) => sum + a.score.total, 0);
-      const maxScore = attempts.length * 4;
-      const totalXP = attempts.reduce(
-        (sum, a) => sum + computeXP(a.score.total, profiles[attempts.indexOf(a)]?.difficulty || "EASY", a.timeTakenMs, a.clueUsed),
-        0
-      );
+  appendFeedbackChunk: (chunk) => {
+    set((state) => ({
+      streamedFeedback: `${state.streamedFeedback}${chunk}`,
+    }));
+  },
 
-      set({
-        status: "COMPLETE",
-        summary: {
-          totalScore,
-          maxScore,
-          accuracy: (totalScore / maxScore) * 100,
-          profileResults: attempts,
-          dimensionAccuracy: accuracy,
-          weakestDimension: weakest,
-          strongestDimension: strongest,
-          metaInsight: generateMetaInsight(weakest, strongest, accuracy),
-          xpEarned: totalXP,
-        },
-      });
+  applyNextProfileEvent: (profile, profileIndex) => {
+    set({
+      nextProfile: profile,
+      profileIndex,
+      pendingSessionComplete: false,
+    });
+  },
+
+  applySessionCompleteEvent: (profileIndex) => {
+    set({
+      profileIndex,
+      nextProfile: null,
+      pendingSessionComplete: true,
+    });
+  },
+
+  finalizeSubmitFlow: () => {
+    const state = get();
+    set({
+      status: "FEEDBACK",
+      currentFeedback: state.streamedFeedback,
+    });
+  },
+
+  handleNextAfterFeedback: async () => {
+    const state = get();
+
+    if (state.pendingSessionComplete) {
+      if (!state.sessionId) {
+        set({ status: "IDLE" });
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/game/session/${state.sessionId}/complete`, {
+          method: "POST",
+        });
+
+        if (!response.ok) {
+          throw new Error(await parseError(response));
+        }
+
+        const summary = (await response.json()) as SessionSummary;
+
+        set({
+          status: "COMPLETE",
+          summary,
+          currentScore: null,
+          currentFeedback: "",
+          streamedFeedback: "",
+          nextProfile: null,
+          pendingSessionComplete: false,
+          selections: { ...EMPTY_SELECTIONS },
+          clueRevealed: false,
+          startTimestamp: null,
+          error: null,
+        });
+      } catch (error) {
+        set({
+          status: "IDLE",
+          error: error instanceof Error ? error.message : "Failed to complete session",
+        });
+      }
+
+      return;
+    }
+
+    if (!state.nextProfile) {
+      set({ status: "IDLE", error: "Next profile not available" });
       return;
     }
 
     set({
       status: "PLAYING",
-      profileIndex: nextIndex,
-      currentProfile: profiles[nextIndex],
-      selections: { DR: null, SE: null, SR: null, CV: null },
+      currentProfile: state.nextProfile,
+      nextProfile: null,
+      selections: { ...EMPTY_SELECTIONS },
       clueRevealed: false,
       startTimestamp: Date.now(),
-      currentFeedback: "",
       currentScore: null,
+      currentFeedback: "",
+      streamedFeedback: "",
+      error: null,
     });
   },
 
   resetGame: () => {
+    persistSessionId(null);
     set({
       status: "IDLE",
+      sessionId: null,
       currentProfile: null,
       profileIndex: 0,
-      profiles: [],
-      selections: { DR: null, SE: null, SR: null, CV: null },
+      totalProfiles: 0,
+      selections: { ...EMPTY_SELECTIONS },
       clueRevealed: false,
       startTimestamp: null,
-      attempts: [],
+      completedScores: [],
       currentFeedback: "",
+      streamedFeedback: "",
       currentScore: null,
       summary: null,
+      nextProfile: null,
+      pendingSessionComplete: false,
+      error: null,
     });
   },
 }));

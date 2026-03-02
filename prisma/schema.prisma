@@ -1,0 +1,147 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum SessionStatus {
+  ACTIVE
+  COMPLETED
+  EXPIRED
+}
+
+enum DimensionCode {
+  DR
+  SE
+  SR
+  CV
+}
+
+enum DRValue {
+  Surface
+  Intermediate
+  Deep
+  Meta
+}
+
+enum SEValue {
+  Single
+  DualTrack
+  MultiTrack
+  Divergent
+}
+
+enum SRValue {
+  Rare
+  Selective
+  Regular
+  Constant
+}
+
+enum CVValue {
+  Deadline
+  Clarity
+  InfoExhaustion
+  Intuition
+}
+
+model User {
+  id           String        @id @default(cuid())
+  email        String        @unique
+  name         String?
+  passwordHash String?
+  provider     String        @default("credentials")
+  xp           Int           @default(0)
+  level        Int           @default(1)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  stats        UserStats?
+  sessions     GameSession[]
+}
+
+model UserStats {
+  id                String        @id @default(cuid())
+  userId            String        @unique
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  totalSessions     Int           @default(0)
+  totalProfiles     Int           @default(0)
+  totalCorrect      Int           @default(0)
+  drAccuracy        Float         @default(0)
+  seAccuracy        Float         @default(0)
+  srAccuracy        Float         @default(0)
+  cvAccuracy        Float         @default(0)
+  weakestDimension  DimensionCode?
+  strongestDimension DimensionCode?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+}
+
+model Profile {
+  id        String     @id @default(cuid())
+  slug      String     @unique
+  name      String
+  avatar    String
+  difficulty Difficulty
+  scenario  String     @db.Text
+  context   String
+  clues     String[]
+  answerDR  DRValue
+  answerSE  SEValue
+  answerSR  SRValue
+  answerCV  CVValue
+  isActive  Boolean    @default(true)
+  sortOrder Int
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  attempts  Attempt[]
+}
+
+model GameSession {
+  id          String        @id @default(cuid())
+  userId      String?
+  user        User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  guestToken  String?       @unique
+  status      SessionStatus @default(ACTIVE)
+  profileOrder String[]
+  currentIndex Int          @default(0)
+  totalScore   Int          @default(0)
+  maxScore     Int
+  startedAt    DateTime     @default(now())
+  completedAt  DateTime?
+  expiresAt    DateTime
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  attempts     Attempt[]
+}
+
+model Attempt {
+  id           String      @id @default(cuid())
+  sessionId    String
+  profileId    String
+  session      GameSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  profile      Profile     @relation(fields: [profileId], references: [id], onDelete: Restrict)
+  selectionDR  DRValue
+  selectionSE  SEValue
+  selectionSR  SRValue
+  selectionCV  CVValue
+  scoreDR      Boolean
+  scoreSE      Boolean
+  scoreSR      Boolean
+  scoreCV      Boolean
+  totalScore   Int
+  feedbackText String?     @db.Text
+  clueUsed     Boolean     @default(false)
+  timeTakenMs  Int?
+  createdAt    DateTime    @default(now())
+
+  @@unique([sessionId, profileId])
+}

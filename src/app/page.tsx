@@ -7,7 +7,11 @@ import { useGameStore } from "@/stores/gameStore";
 
 export default function HomePage() {
   const router = useRouter();
-  const { status, startGame } = useGameStore();
+  const { status, startGame, bootstrapSession } = useGameStore();
+
+  useEffect(() => {
+    void bootstrapSession();
+  }, [bootstrapSession]);
 
   useEffect(() => {
     if (status === "PLAYING" || status === "SUBMITTING" || status === "FEEDBACK") {
@@ -20,10 +24,16 @@ export default function HomePage() {
     }
   }, [status, router]);
 
-  const handleStart = () => {
-    startGame();
-    router.push("/play");
+  const handleStart = async () => {
+    await startGame();
+    if (useGameStore.getState().status === "PLAYING") {
+      router.push("/play");
+    }
   };
+
+  if (status === "RESTORING") {
+    return null;
+  }
 
   return <IntroScreen onStart={handleStart} />;
 }

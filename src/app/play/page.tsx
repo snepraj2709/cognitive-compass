@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { useGameStore } from "@/stores/gameStore";
+import { useGameStream } from "@/hooks/useGameStream";
 import { ProfileCard } from "@/components/game/ProfileCard";
 import { DimensionSelector } from "@/components/game/DimensionSelector";
 import { FeedbackPanel } from "@/components/game/FeedbackPanel";
@@ -11,8 +12,11 @@ import { ProgressDots } from "@/components/game/ProgressDots";
 
 export default function PlayPage() {
   const router = useRouter();
+  const { submitCurrentAnswer } = useGameStream();
   const {
     status,
+    hasBootstrapped,
+    bootstrapSession,
     currentProfile,
     profileIndex,
     totalProfiles,
@@ -20,15 +24,19 @@ export default function PlayPage() {
     clueRevealed,
     currentScore,
     currentFeedback,
-    attempts,
+    completedScores,
+    pendingSessionComplete,
     setSelection,
     revealClue,
-    submitAnswer,
-    goToNextProfile,
+    handleNextAfterFeedback,
   } = useGameStore();
 
   useEffect(() => {
-    if (status === "IDLE") {
+    void bootstrapSession();
+  }, [bootstrapSession]);
+
+  useEffect(() => {
+    if (status === "IDLE" && hasBootstrapped) {
       router.replace("/");
       return;
     }
@@ -36,12 +44,15 @@ export default function PlayPage() {
     if (status === "COMPLETE") {
       router.replace("/results");
     }
-  }, [status, router]);
+  }, [status, hasBootstrapped, router]);
 
   const allSelected = selections.DR && selections.SE && selections.SR && selections.CV;
-  const completedScores = attempts.map((a) => a.score.total);
 
-  if (status === "IDLE" || status === "COMPLETE") {
+  if (status === "RESTORING") {
+    return null;
+  }
+
+  if ((status === "IDLE" && hasBootstrapped) || status === "COMPLETE") {
     return null;
   }
 
@@ -72,7 +83,7 @@ export default function PlayPage() {
               <DimensionSelector onSelect={setSelection} selections={selections} />
 
               <button
-                onClick={submitAnswer}
+                onClick={submitCurrentAnswer}
                 disabled={!allSelected || status === "SUBMITTING"}
                 className="w-full rounded-lg bg-primary py-3 font-mono text-sm font-bold text-primary-foreground transition-all hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-30"
                 aria-label="Submit classification"
@@ -87,8 +98,8 @@ export default function PlayPage() {
               <FeedbackPanel
                 score={currentScore}
                 feedback={currentFeedback}
-                onNext={goToNextProfile}
-                isLastProfile={profileIndex === totalProfiles - 1}
+                onNext={handleNextAfterFeedback}
+                isLastProfile={pendingSessionComplete}
               />
             </motion.div>
           )}

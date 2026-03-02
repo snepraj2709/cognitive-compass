@@ -7,9 +7,18 @@ import { useGameStore } from "@/stores/gameStore";
 
 export default function ResultsPage() {
   const router = useRouter();
-  const { status, summary, resetGame } = useGameStore();
+  const { status, summary, resetGame, bootstrapSession } = useGameStore();
 
   useEffect(() => {
+    void bootstrapSession();
+  }, [bootstrapSession]);
+
+  useEffect(() => {
+    if (status === "PLAYING" || status === "SUBMITTING" || status === "FEEDBACK") {
+      router.replace("/play");
+      return;
+    }
+
     if (status !== "COMPLETE" || !summary) {
       router.replace("/");
     }

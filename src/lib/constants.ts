@@ -1,4 +1,18 @@
-import type { DRValue, SEValue, SRValue, CVValue, DimensionKey } from "@/types/game";
+import type {
+  CVValue,
+  DRValue,
+  Difficulty,
+  DimensionKey,
+  SEValue,
+  SRValue,
+} from "@/types/game";
+
+export const DR_VALUES = ["Surface", "Intermediate", "Deep", "Meta"] as const;
+export const SE_VALUES = ["Single", "DualTrack", "MultiTrack", "Divergent"] as const;
+export const SR_VALUES = ["Rare", "Selective", "Regular", "Constant"] as const;
+export const CV_VALUES = ["Deadline", "Clarity", "InfoExhaustion", "Intuition"] as const;
+
+export const DIMENSION_KEYS = ["DR", "SE", "SR", "CV"] as const;
 
 export const DIMENSION_LABELS: Record<DimensionKey, string> = {
   DR: "Reasoning Depth",
@@ -21,28 +35,28 @@ export const DIMENSION_DESCRIPTIONS: Record<DimensionKey, string> = {
   CV: "What triggers their final decision?",
 };
 
-export const DR_OPTIONS: { value: DRValue; label: string; description: string }[] = [
-  { value: "Surface", label: "Surface", description: "1–2 causal links. Reacts to surface signals." },
-  { value: "Intermediate", label: "Intermediate", description: "3–4 causal links. Connects patterns." },
+export const DR_OPTIONS: Array<{ value: DRValue; label: string; description: string }> = [
+  { value: "Surface", label: "Surface", description: "1-2 causal links. Reacts to surface signals." },
+  { value: "Intermediate", label: "Intermediate", description: "3-4 causal links. Connects patterns." },
   { value: "Deep", label: "Deep", description: "5+ links, systems thinking." },
   { value: "Meta", label: "Meta", description: "Recursive models. Thinks about thinking." },
 ];
 
-export const SE_OPTIONS: { value: SEValue; label: string; description: string }[] = [
+export const SE_OPTIONS: Array<{ value: SEValue; label: string; description: string }> = [
   { value: "Single", label: "Single", description: "One solution, tests it. Stops early." },
-  { value: "DualTrack", label: "Dual-Track", description: "2–3 options before committing." },
+  { value: "DualTrack", label: "Dual-Track", description: "2-3 options before committing." },
   { value: "MultiTrack", label: "Multi-Track", description: "Parallel hypotheses simultaneously." },
   { value: "Divergent", label: "Divergent", description: "Novel, non-obvious search paths." },
 ];
 
-export const SR_OPTIONS: { value: SRValue; label: string; description: string }[] = [
+export const SR_OPTIONS: Array<{ value: SRValue; label: string; description: string }> = [
   { value: "Rare", label: "Rare", description: "Reflects only when externally forced." },
   { value: "Selective", label: "Selective", description: "Reflects when specific triggers occur." },
   { value: "Regular", label: "Regular", description: "Periodic, scheduled self-checks." },
   { value: "Constant", label: "Constant", description: "Real-time metacognitive monitoring." },
 ];
 
-export const CV_OPTIONS: { value: CVValue; label: string; description: string }[] = [
+export const CV_OPTIONS: Array<{ value: CVValue; label: string; description: string }> = [
   { value: "Deadline", label: "Deadline", description: "External pressure forces decision." },
   { value: "Clarity", label: "Clarity", description: "Commits when logical pattern crystallizes." },
   { value: "InfoExhaustion", label: "Info Exhaustion", description: "Commits when data runs out." },
@@ -56,14 +70,33 @@ export const DIMENSION_OPTIONS = {
   CV: CV_OPTIONS,
 } as const;
 
-export const DIFFICULTY_ORDER: Record<string, number> = {
+export const DIFFICULTY_ORDER: Record<Difficulty, number> = {
   EASY: 0,
   MEDIUM: 1,
   HARD: 2,
 };
 
-export const XP_BASE: Record<string, number> = {
+export const SESSION_TTL_SECONDS = 7_200;
+export const PROFILE_CACHE_TTL_SECONDS = 86_400;
+
+export const XP_BASE: Record<Difficulty, number> = {
   EASY: 10,
   MEDIUM: 20,
   HARD: 35,
+};
+
+export const RATE_LIMIT = {
+  CREATE_SESSION_PER_MINUTE: 20,
+  GET_SESSION_PER_MINUTE: 60,
+  SUBMIT_PER_MINUTE: 45,
+  COMPLETE_PER_MINUTE: 20,
+} as const;
+
+export const ANTHROPIC_MODEL = "claude-sonnet-4-20250514";
+
+export const META_INSIGHT_BY_DIMENSION: Record<DimensionKey, string> = {
+  DR: "Reasoning depth is the main growth edge. Track how far each person follows cause and effect.",
+  SE: "Exploration width is the main growth edge. Count how many alternatives are truly considered.",
+  SR: "Reflection frequency is the main growth edge. Watch for explicit self-checks and assumption audits.",
+  CV: "Convergence style is the main growth edge. Focus on what actually triggers the final commitment.",
 };

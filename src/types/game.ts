@@ -23,6 +23,18 @@ export interface Profile {
   answerCV: CVValue;
 }
 
+export interface PublicProfile {
+  id: string;
+  slug: string;
+  name: string;
+  avatar: string;
+  difficulty: Difficulty;
+  scenario: string;
+  context: string;
+  clues: string[];
+  sortOrder: number;
+}
+
 export interface DimSelections {
   DR: DRValue | null;
   SE: SEValue | null;
@@ -42,7 +54,7 @@ export interface ScoreBreakdown {
 export interface AttemptResult {
   profileId: string;
   profileName: string;
-  selections: DimSelections;
+  selections: { DR: DRValue; SE: SEValue; SR: SRValue; CV: CVValue };
   correctAnswers: { DR: DRValue; SE: SEValue; SR: SRValue; CV: CVValue };
   score: ScoreBreakdown;
   feedback: string;
@@ -69,4 +81,23 @@ export interface SessionSummary {
   xpEarned: number;
 }
 
-export type GameStatus = "IDLE" | "INTRO" | "PLAYING" | "SUBMITTING" | "FEEDBACK" | "COMPLETE";
+export interface SessionStateResponse {
+  sessionId: string;
+  guestToken: string | null;
+  status: "ACTIVE" | "COMPLETED" | "EXPIRED";
+  profileIndex: number;
+  totalProfiles: number;
+  totalScore: number;
+  maxScore: number;
+  currentProfile: PublicProfile | null;
+  completedScores: number[];
+  expiresAt: string;
+}
+
+export type GameStatus =
+  | "IDLE"
+  | "RESTORING"
+  | "PLAYING"
+  | "SUBMITTING"
+  | "FEEDBACK"
+  | "COMPLETE";
