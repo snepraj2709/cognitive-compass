@@ -1,13 +1,16 @@
+"use client";
+
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { AnimatePresence, motion } from "framer-motion";
 import { useGameStore } from "@/stores/gameStore";
-import { IntroScreen } from "@/components/game/IntroScreen";
 import { ProfileCard } from "@/components/game/ProfileCard";
 import { DimensionSelector } from "@/components/game/DimensionSelector";
 import { FeedbackPanel } from "@/components/game/FeedbackPanel";
-import { SessionSummary } from "@/components/game/SessionSummary";
 import { ProgressDots } from "@/components/game/ProgressDots";
-import { AnimatePresence, motion } from "framer-motion";
 
-const Index = () => {
+export default function PlayPage() {
+  const router = useRouter();
   const {
     status,
     currentProfile,
@@ -18,34 +21,33 @@ const Index = () => {
     currentScore,
     currentFeedback,
     attempts,
-    summary,
-    startGame,
     setSelection,
     revealClue,
     submitAnswer,
     goToNextProfile,
-    resetGame,
   } = useGameStore();
+
+  useEffect(() => {
+    if (status === "IDLE") {
+      router.replace("/");
+      return;
+    }
+
+    if (status === "COMPLETE") {
+      router.replace("/results");
+    }
+  }, [status, router]);
 
   const allSelected = selections.DR && selections.SE && selections.SR && selections.CV;
   const completedScores = attempts.map((a) => a.score.total);
 
-  if (status === "IDLE") {
-    return <IntroScreen onStart={startGame} />;
-  }
-
-  if (status === "COMPLETE" && summary) {
-    return (
-      <main className="min-h-screen px-4 py-10">
-        <SessionSummary summary={summary} onPlayAgain={resetGame} />
-      </main>
-    );
+  if (status === "IDLE" || status === "COMPLETE") {
+    return null;
   }
 
   return (
     <main className="min-h-screen px-4 py-6">
       <div className="mx-auto max-w-2xl">
-        {/* Header */}
         <header className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="font-mono text-lg font-bold text-gradient-primary">CogOS</h1>
@@ -65,16 +67,9 @@ const Index = () => {
               exit={{ opacity: 0 }}
               className="space-y-6"
             >
-              <ProfileCard
-                profile={currentProfile}
-                clueRevealed={clueRevealed}
-                onRevealClue={revealClue}
-              />
+              <ProfileCard profile={currentProfile} clueRevealed={clueRevealed} onRevealClue={revealClue} />
 
-              <DimensionSelector
-                onSelect={setSelection}
-                selections={selections}
-              />
+              <DimensionSelector onSelect={setSelection} selections={selections} />
 
               <button
                 onClick={submitAnswer}
@@ -88,12 +83,7 @@ const Index = () => {
           )}
 
           {status === "FEEDBACK" && currentScore && (
-            <motion.div
-              key={`feedback-${profileIndex}`}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
+            <motion.div key={`feedback-${profileIndex}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <FeedbackPanel
                 score={currentScore}
                 feedback={currentFeedback}
@@ -106,6 +96,4 @@ const Index = () => {
       </div>
     </main>
   );
-};
-
-export default Index;
+}

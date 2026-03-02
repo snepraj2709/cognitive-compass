@@ -106,7 +106,6 @@
   }
 }
 
-/* Scrollbar */
 ::-webkit-scrollbar {
   width: 4px;
 }
@@ -118,7 +117,6 @@
   border-radius: 2px;
 }
 
-/* Selection */
 ::selection {
   background: hsl(var(--primary) / 0.3);
   color: hsl(var(--foreground));
