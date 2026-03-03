@@ -8,6 +8,7 @@ import type {
   SEValue,
   SRValue,
 } from "@prisma/client";
+export const dynamic = "force-dynamic";
 import { prisma } from "@/lib/prisma";
 import { del, get, setEx } from "@/lib/redis";
 import {
