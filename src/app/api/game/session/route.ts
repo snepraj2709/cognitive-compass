@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { RATE_LIMIT } from "@/lib/constants";
 import { SessionService } from "@/services/SessionService";
 import { withErrorHandler } from "@/utils/apiError";
+import logger from "@/utils/logger";
 import { enforceRateLimit, getRateLimitIdentifier } from "@/utils/request";
 import { NewSessionSchema } from "@/validations/game.schemas";
 
@@ -24,8 +25,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     await enforceRateLimit(getRateLimitIdentifier(request), RATE_LIMIT.CREATE_SESSION_PER_MINUTE);
 
     await parseCreateSessionPayload(request);
-    const session = await auth();
-    const userId = session?.user?.id;
+    let userId: string | undefined;
+
+    try {
+      const session = await auth();
+      userId = session?.user?.id;
+    } catch (error) {
+      logger.warn({ err: error }, "Auth unavailable during session creation; continuing as guest");
+    }
 
     const created = await SessionService.createSession(userId);
     const currentProfile = SessionService.toPublicProfile(created.firstProfile);

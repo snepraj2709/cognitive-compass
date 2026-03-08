@@ -2,6 +2,8 @@ import { PrismaClient } from '@prisma/client';
 import { NextRequest } from 'next/server';
 import { beforeAll, beforeEach, afterAll, describe, expect, it, vi } from 'vitest';
 
+const authMock = vi.fn().mockResolvedValue(null);
+
 interface CreateSessionResponse {
   sessionId: string;
   guestToken: string | null;
@@ -299,7 +301,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Session API integration', () =>
     }));
 
     vi.doMock('@/auth', () => ({
-      auth: vi.fn().mockResolvedValue(null),
+      auth: authMock,
       handlers: {
         GET: vi.fn(),
         POST: vi.fn(),
@@ -332,6 +334,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Session API integration', () =>
   beforeEach(async () => {
     const prisma = ensurePrisma(testPrisma);
     resetRedisMock();
+    authMock.mockReset();
+    authMock.mockResolvedValue(null);
 
     await prisma.attempt.deleteMany();
     await prisma.gameSession.deleteMany();
@@ -354,6 +358,16 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Session API integration', () =>
     expect(response.currentProfile).toBeTruthy();
     expect(response.currentProfile.id).toBe('test-easy-1');
     expect(response.totalProfiles).toBe(8);
+    expect(response.profileIndex).toBe(0);
+  });
+
+  it('POST /api/game/session falls back to a guest session when auth fails', async () => {
+    authMock.mockRejectedValueOnce(new Error('MissingSecret'));
+
+    const response = await createSession();
+
+    expect(response.sessionId).toBeTruthy();
+    expect(response.guestToken).toBeTruthy();
     expect(response.profileIndex).toBe(0);
   });
 

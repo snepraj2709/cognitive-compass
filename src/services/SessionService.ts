@@ -27,6 +27,7 @@ import {
   SESSION_EXPIRED,
   SESSION_NOT_FOUND,
 } from "@/utils/apiError";
+import logger from "@/utils/logger";
 import {
   computeSessionAccuracy,
   computeXP,
@@ -246,11 +247,13 @@ export class SessionService {
   ): Promise<{ session: GameSession; firstProfile: Profile }> {
     const profiles = await this.getProfiles();
     if (profiles.length === 0) {
+      logger.error({ userId }, "Session creation failed because no active profiles are seeded");
       throw new APIError("NO_ACTIVE_PROFILES", "No active profiles available", 500);
     }
 
     const firstProfile = profiles[0];
     if (!firstProfile) {
+      logger.error({ userId }, "Session creation failed because no first profile could be resolved");
       throw new APIError("NO_ACTIVE_PROFILES", "No active profiles available", 500);
     }
 
